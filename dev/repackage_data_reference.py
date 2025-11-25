@@ -1,17 +1,16 @@
 """
-Repackage the FinewebEdu-100B dataset into shards:
+将 FinewebEdu-100B 数据集重新打包为分片：
 
-- each shard is ~100MB in size (after zstd compression)
-- parquets are written with row group size of 1000
-- shuffle the dataset
+- 每个分片压缩后约 100MB 大小（zstd 压缩后）
+- parquet 文件以 1000 行为行组大小写入
+- 打乱数据集
 
-This will be uploaded to HuggingFace for hosting.
-The big deal is that our DataLoader will be able to stream
-the data and cache it along the way on disk, decreasing the
-training latency.
+这将上传到 HuggingFace 进行托管。
+重要的是，我们的 DataLoader 将能够流式读取数据并
+沿途缓存到磁盘，减少训练延迟。
 
-NOTE: This file is meant only as reference/documentation of the
-dataset preparation and it is not used during the project runtime.
+注意：此文件仅作为数据集准备的参考/文档，
+在项目运行时不会使用。
 """
 import os
 import time
@@ -20,26 +19,26 @@ from datasets import load_dataset
 import pyarrow.parquet as pq
 import pyarrow as pa
 
-# Source dataset
+# 源数据集
 dataset_kwargs = {
     "path": "HuggingFaceFW/fineweb-edu",
     "split": "train",
-    "name": "sample-100BT", # ~100B GPT-2 tokens at ~3 chars/token => ~300B chars total
+    "name": "sample-100BT", # ~100B GPT-2 token，约每 3 个字符一个 token => 总共约 ~300B 字符
 }
 ds = load_dataset(**dataset_kwargs)
 
-# Shuffle to scramble the order
+# 打乱以打乱顺序
 ds = ds.shuffle(seed=42)
 ndocs = len(ds) # total number of documents to process
 print(f"Total number of documents: {ndocs}")
 
-# Repackage into parquet files
+# 重新打包为 parquet 文件
 output_dir = "/home/ubuntu/.cache/nanochat/base_data"
 os.makedirs(output_dir, exist_ok=True)
 
-# Write to parquet files
+# 写入 parquet 文件
 chars_per_shard = 250_000_000
-row_group_size = 1024 # HF uses 1000 but we use multiple of 2, nicer for distributed data loader later
+row_group_size = 1024 # HF 使用 1000 但我们使用 2 的倍数，后续分布式数据加载器更好用
 shard_docs = []
 shard_index = 0
 shard_characters = 0
@@ -52,7 +51,7 @@ for doc in ds:
     shard_characters += len(text)
     collected_enough_chars = shard_characters >= chars_per_shard
     docs_multiple_of_row_group_size = len(shard_docs) % row_group_size == 0
-    if collected_enough_chars and docs_multiple_of_row_group_size: # leads to ~100MB of text (compressed)
+    if collected_enough_chars and docs_multiple_of_row_group_size: # 导致 ~100MB 的文本（压缩后）
         shard_path = os.path.join(output_dir, f"shard_{shard_index:05d}.parquet")
         shard_table = pa.Table.from_pydict({"text": shard_docs})
         pq.write_table(
@@ -78,7 +77,7 @@ for doc in ds:
         shard_characters = 0
         shard_index += 1
 
-# Demonstration of how the data was later uploaded to HuggingFace
+# 演示后续如何将数据上传到 HuggingFace
 def upload():
     import os
     from huggingface_hub import HfApi
