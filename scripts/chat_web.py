@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 """
-Unified web chat server - serves both UI and API from a single FastAPI instance.
+统一的 Web 聊天服务器 - 从单个 FastAPI 实例同时提供 UI 和 API 服务。
 
-Uses data parallelism to distribute requests across multiple GPUs. Each GPU loads
-a full copy of the model, and incoming requests are distributed to available workers.
+使用数据并行将请求分发到多个 GPU。每个 GPU 加载
+模型的完整副本，传入的请求分发给可用的工作进程。
 
-Launch examples:
+启动示例：
 
-- single available GPU (default)
+- 单个可用 GPU（默认）
 python -m scripts.chat_web
 
-- 4 GPUs
+- 4 个 GPU
 python -m scripts.chat_web --num-gpus 4
 
-To chat, open the URL printed in the console. (If on cloud box, make sure to use public IP)
+要聊天，在控制台打印的 URL 中打开。（如果在云服务器上，确保使用公网 IP）
 
-Endpoints:
-  GET  /           - Chat UI
-  POST /chat/completions - Chat API (streaming only)
-  GET  /health     - Health check with worker pool status
-  GET  /stats      - Worker pool statistics and GPU utilization
+端点：
+  GET  /           - 聊天 UI
+  POST /chat/completions - 聊天 API（仅流式）
+  GET  /health     - 健康检查（包含工作进程池状态）
+  GET  /stats      - 工作进程池统计和 GPU 利用率
 
-Abuse Prevention:
-  - Maximum 500 messages per request
-  - Maximum 8000 characters per message
-  - Maximum 32000 characters total conversation length
-  - Temperature clamped to 0.0-2.0
-  - Top-k clamped to 1-200
-  - Max tokens clamped to 1-4096
+滥用预防：
+  - 每个请求最多 500 条消息
+  - 每条消息最多 8000 个字符
+  - 总对话长度最多 32000 个字符
+  - 温度限制在 0.0-2.0
+  - Top-k 限制在 1-200
+  - 最大 token 数限制在 1-4096
 """
 
 import argparse
@@ -49,7 +49,7 @@ from nanochat.common import compute_init, autodetect_device_type
 from nanochat.checkpoint_manager import load_model
 from nanochat.engine import Engine
 
-# Abuse prevention limits
+# 滥用预防限制
 MAX_MESSAGES_PER_REQUEST = 500
 MAX_MESSAGE_LENGTH = 8000
 MAX_TOTAL_CONVERSATION_LENGTH = 32000
@@ -74,7 +74,7 @@ parser.add_argument('--device-type', type=str, default='', choices=['cuda', 'cpu
 parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind the server to')
 args = parser.parse_args()
 
-# Configure logging for conversation traffic
+# 配置对话流量日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(message)s',
@@ -88,7 +88,7 @@ ptdtype = torch.float32 if args.dtype == 'float32' else torch.bfloat16
 
 @dataclass
 class Worker:
-    """A worker with a model loaded on a specific GPU."""
+    """加载到特定 GPU 上的工作进程。"""
     gpu_id: int
     device: torch.device
     engine: Engine
@@ -96,7 +96,7 @@ class Worker:
     autocast_ctx: torch.amp.autocast
 
 class WorkerPool:
-    """Pool of workers, each with a model replica on a different GPU."""
+    """工作进程池，每个工作进程在不同 GPU 上有一个模型副本。"""
 
     def __init__(self, num_gpus: Optional[int] = None):
         if num_gpus is None:
@@ -109,7 +109,7 @@ class WorkerPool:
         self.available_workers: asyncio.Queue = asyncio.Queue()
 
     async def initialize(self, source: str, model_tag: Optional[str] = None, step: Optional[int] = None):
-        """Load model on each GPU."""
+        """在每个 GPU 上加载模型。"""
         print(f"Initializing worker pool with {self.num_gpus} GPUs...")
         if self.num_gpus > 1:
             assert device_type == "cuda", "Only CUDA supports multiple workers/GPUs. cpu|mps does not."
@@ -140,11 +140,11 @@ class WorkerPool:
         print(f"All {self.num_gpus} workers initialized!")
 
     async def acquire_worker(self) -> Worker:
-        """Get an available worker from the pool."""
+        """从池中获取可用的工作进程。"""
         return await self.available_workers.get()
 
     async def release_worker(self, worker: Worker):
-        """Return a worker to the pool."""
+        """将工作进程返回到池中。"""
         await self.available_workers.put(worker)
 
 class ChatMessage(BaseModel):
@@ -158,8 +158,8 @@ class ChatRequest(BaseModel):
     top_k: Optional[int] = None
 
 def validate_chat_request(request: ChatRequest):
-    """Validate chat request to prevent abuse."""
-    # Check number of messages
+    """验证聊天请求以防止滥用。"""
+    # 检查消息数量
     if len(request.messages) == 0:
         raise HTTPException(status_code=400, detail="At least one message is required")
     if len(request.messages) > MAX_MESSAGES_PER_REQUEST:
@@ -168,7 +168,7 @@ def validate_chat_request(request: ChatRequest):
             detail=f"Too many messages. Maximum {MAX_MESSAGES_PER_REQUEST} messages allowed per request"
         )
 
-    # Check individual message lengths and total conversation length
+    # 检查单条消息长度和总对话长度
     total_length = 0
     for i, message in enumerate(request.messages):
         if not message.content:
@@ -188,7 +188,7 @@ def validate_chat_request(request: ChatRequest):
             detail=f"Total conversation is too long. Maximum {MAX_TOTAL_CONVERSATION_LENGTH} characters allowed"
         )
 
-    # Validate role values
+    # 验证角色值
     for i, message in enumerate(request.messages):
         if message.role not in ["user", "assistant"]:
             raise HTTPException(
@@ -196,7 +196,7 @@ def validate_chat_request(request: ChatRequest):
                 detail=f"Message {i} has invalid role. Must be 'user', 'assistant', or 'system'"
             )
 
-    # Validate temperature
+    # 验证温度
     if request.temperature is not None:
         if not (MIN_TEMPERATURE <= request.temperature <= MAX_TEMPERATURE):
             raise HTTPException(
@@ -204,7 +204,7 @@ def validate_chat_request(request: ChatRequest):
                 detail=f"Temperature must be between {MIN_TEMPERATURE} and {MAX_TEMPERATURE}"
             )
 
-    # Validate top_k
+    # 验证 top_k
     if request.top_k is not None:
         if not (MIN_TOP_K <= request.top_k <= MAX_TOP_K):
             raise HTTPException(
@@ -212,7 +212,7 @@ def validate_chat_request(request: ChatRequest):
                 detail=f"top_k must be between {MIN_TOP_K} and {MAX_TOP_K}"
             )
 
-    # Validate max_tokens
+    # 验证 max_tokens
     if request.max_tokens is not None:
         if not (MIN_MAX_TOKENS <= request.max_tokens <= MAX_MAX_TOKENS):
             raise HTTPException(
@@ -222,7 +222,7 @@ def validate_chat_request(request: ChatRequest):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load models on all GPUs on startup."""
+    """在启动时加载模型到所有 GPU。"""
     print("Loading nanochat models across GPUs...")
     app.state.worker_pool = WorkerPool(num_gpus=args.num_gpus)
     await app.state.worker_pool.initialize(args.source, model_tag=args.model_tag, step=args.step)
@@ -241,11 +241,11 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Serve the chat UI."""
+    """提供聊天 UI。"""
     ui_html_path = os.path.join("nanochat", "ui.html")
     with open(ui_html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
-    # Replace the API_URL to use the same origin
+    # 替换 API_URL 以使用相同的源
     html_content = html_content.replace(
         "const API_URL = `http://${window.location.hostname}:8000`;",
         "const API_URL = '';"
@@ -255,7 +255,7 @@ async def root():
 
 @app.get("/logo.svg")
 async def logo():
-    """Serve the NanoChat logo for favicon and header."""
+    """为 favicon 和头部提供 NanoChat 图标。"""
     logo_path = os.path.join("nanochat", "logo.svg")
     return FileResponse(logo_path, media_type="image/svg+xml")
 
@@ -266,7 +266,7 @@ async def generate_stream(
     max_new_tokens=None,
     top_k=None
 ) -> AsyncGenerator[str, None]:
-    """Generate assistant response with streaming."""
+    """生成带流式输出的助手响应。"""
     temperature = temperature if temperature is not None else args.temperature
     max_new_tokens = max_new_tokens if max_new_tokens is not None else args.max_tokens
     top_k = top_k if top_k is not None else args.top_k
@@ -274,9 +274,9 @@ async def generate_stream(
     assistant_end = worker.tokenizer.encode_special("<|assistant_end|>")
     bos = worker.tokenizer.get_bos_token_id()
 
-    # Accumulate tokens to properly handle multi-byte UTF-8 characters (like emojis)
+    # 累积 token 以正确处理多字节 UTF-8 字符（如表情符号）
     accumulated_tokens = []
-    # Track the last complete UTF-8 string (without replacement characters)
+    # 跟踪最后一个完整的 UTF-8 字符串（无替换字符）
     last_clean_text = ""
 
     with worker.autocast_ctx:
@@ -290,21 +290,21 @@ async def generate_stream(
         ):
             token = token_column[0]
 
-            # Stopping criteria
+            # 停止条件
             if token == assistant_end or token == bos:
                 break
 
-            # Append the token to sequence
+            # 将 token 追加到序列
             accumulated_tokens.append(token)
-            # Decode all accumulated tokens to get proper UTF-8 handling
-            # Note that decode is a quite efficient operation, basically table lookup and string concat
+            # 解码所有累积的 token 以获得正确的 UTF-8 处理
+            # 注意解码是相当高效的操作，基本上是表查找和字符串拼接
             current_text = worker.tokenizer.decode(accumulated_tokens)
-            # Only emit text if it doesn't end with a replacement character
-            # This ensures we don't emit incomplete UTF-8 sequences
+            # 只有当文本不以替换字符结尾时才发送
+            # 这确保我们不发送不完整的 UTF-8 序列
             if not current_text.endswith('�'):
-                # Extract only the new text since last clean decode
+                # 只提取自上次干净解码以来的新文本
                 new_text = current_text[len(last_clean_text):]
-                if new_text:  # Only yield if there's new content
+                if new_text:  # 只在有新内容时才产出
                     yield f"data: {json.dumps({'token': new_text, 'gpu': worker.gpu_id}, ensure_ascii=False)}\n\n"
                     last_clean_text = current_text
 
@@ -312,23 +312,23 @@ async def generate_stream(
 
 @app.post("/chat/completions")
 async def chat_completions(request: ChatRequest):
-    """Chat completion endpoint (streaming only) - uses worker pool for multi-GPU."""
+    """聊天补全端点（仅流式）- 使用工作进程池进行多 GPU 处理。"""
 
-    # Basic validation to prevent abuse
+    # 基本验证以防止滥用
     validate_chat_request(request)
 
-    # Log incoming conversation to console
+    # 将传入的对话记录到控制台
     logger.info("="*20)
     for i, message in enumerate(request.messages):
         logger.info(f"[{message.role.upper()}]: {message.content}")
     logger.info("-"*20)
 
-    # Acquire a worker from the pool (will wait if all are busy)
+    # 从池中获取工作进程（如果所有进程都忙则等待）
     worker_pool = app.state.worker_pool
     worker = await worker_pool.acquire_worker()
 
     try:
-        # Build conversation tokens
+        # 构建对话 token
         bos = worker.tokenizer.get_bos_token_id()
         user_start = worker.tokenizer.encode_special("<|user_start|>")
         user_end = worker.tokenizer.encode_special("<|user_end|>")
@@ -348,7 +348,7 @@ async def chat_completions(request: ChatRequest):
 
         conversation_tokens.append(assistant_start)
 
-        # Streaming response with worker release after completion
+        # 流式响应，完成后释放工作进程
         response_tokens = []
         async def stream_and_release():
             try:
@@ -359,17 +359,17 @@ async def chat_completions(request: ChatRequest):
                     max_new_tokens=request.max_tokens,
                     top_k=request.top_k
                 ):
-                    # Accumulate response for logging
+                # 累积响应用于日志记录
                     chunk_data = json.loads(chunk.replace("data: ", "").strip())
                     if "token" in chunk_data:
                         response_tokens.append(chunk_data["token"])
                     yield chunk
             finally:
-                # Log the assistant response to console
+                # 将助手响应记录到控制台
                 full_response = "".join(response_tokens)
                 logger.info(f"[ASSISTANT] (GPU {worker.gpu_id}): {full_response}")
                 logger.info("="*20)
-                # Release worker back to pool after streaming is done
+                # 流式传输完成后将工作进程释放回池中
                 await worker_pool.release_worker(worker)
 
         return StreamingResponse(
@@ -377,13 +377,13 @@ async def chat_completions(request: ChatRequest):
             media_type="text/event-stream"
         )
     except Exception as e:
-        # Make sure to release worker even on error
+        # 出错时确保释放工作进程
         await worker_pool.release_worker(worker)
         raise e
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """健康检查端点。"""
     worker_pool = getattr(app.state, 'worker_pool', None)
     return {
         "status": "ok",
@@ -394,7 +394,7 @@ async def health():
 
 @app.get("/stats")
 async def stats():
-    """Get worker pool statistics."""
+    """获取工作进程池统计信息。"""
     worker_pool = app.state.worker_pool
     return {
         "total_workers": len(worker_pool.workers),
