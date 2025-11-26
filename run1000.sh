@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# The $1000 tier of nanochat
-# Designed to run end-to-end for $1000/24 ~= 41.6 hours on an 8XH100 node
-# A bit sparser on comments, see speedrun.sh for more detail
+# nanochat 的 1000 美元级别
+# 设计为在 8XH100 节点上端到端运行 $1000/24 ~= 41.6 小时
+# 注释较少，更多详情请见 speedrun.sh
 
-# all the setup stuff
+# 所有设置内容
 export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
@@ -21,22 +21,22 @@ source "$HOME/.cargo/env"
 uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
-# train tokenizer on ~4B characters and kick off download of the rest for pretraining
+# 在约 4B 字符上训练分词器并开始下载其余预训练数据
 python -m nanochat.dataset -n 16
-# start downloading the rest of the shards for a total of 800 (see below why 800)
+# 开始下载其余分片，共计 800 个（见下方解释为什么是 800）
 python -m nanochat.dataset -n 800 &
-# todo: download the rest of it
+# todo: 下载剩余部分
 python -m scripts.tok_train --max_chars=4000000000
 python -m scripts.tok_eval
 
-# Documenting my process for determining the hyperparameters for this run1000.sh script:
-# We want a budget of approx. $1000 ~= 41.6 hours of 8XH100 compute
-# 1) I guessed the model size for this to be about depth=32
-# 2) Determine the device_batch_size that fits:
-# Running the base_train.py script with --depth=32, I saw that --device_batch_size=16
-# runs out of memory, but --device_batch_size=8 fits. Inspecting `nvidia-smi` during training,
-# I saw all GPUs were at about 78/80GB VRAM, so it just barely fits and we have good MFU at ~50%.
-# So the training script was running ok and showed:
+# 记录我确定此 run1000.sh 脚本超参数的过程：
+# 我们想要约 1000 美元的预算 ~= 41.6 小时的 8XH100 计算
+# 1) 我猜测这个模型大小约为 depth=32
+# 2) 确定适合的 device_batch_size：
+# 使用 --depth=32 运行 base_train.py 脚本，我发现 --device_batch_size=16
+# 会耗尽内存，但 --device_batch_size=8 可以。在训练期间检查 `nvidia-smi`，
+# 我看到所有 GPU 约在 78/80GB VRAM，所以刚好合适，我们有约 50% 的良好 MFU。
+# 所以训练脚本运行正常并显示：
 # Vocab size: 65,536
 # num_layers: 32
 # model_dim: 2048
@@ -54,32 +54,32 @@ python -m scripts.tok_eval
 # step 00004/71680 (0.01%) | loss: 8.813754 | lrm: 1.00 | dt: 1571.88ms | tok/sec: 83,385 | mfu: 50.92 | total time: 0.00m
 # step 00005/71680 (0.01%) | loss: 8.488074 | lrm: 1.00 | dt: 1572.76ms | tok/sec: 83,338 | mfu: 50.89 | total time: 0.00m
 # ...
-# 3) validate that the runtime fits our budget:
-# The training script uses the Chinchilla scaling law to compute-optimally set #tokens = 20 * #params. In particular:
-# The script shows that we will be training for 71,680 steps, and each step takes 1.574s so:
-# estimated time to train: 71,680 * 1.574s / 60 / 60 = 31.3 hours.
-# This is OK, fits our budget, and leaves ~10 hours for midtraining and SFT and evals and maybe RL.
-# It's possible that we might even fit depth=33 or depth=34, but for now let's go along with this.
-# 4) The last thing to pay attention to is the amount of training data required for the run.
-# The script above calculated that "Total number of training tokens: 37,580,963,840"
-# The tok_eval.py script reports about ~4.8 chars/token on average for the default tokenizer settings.
-# So ~38B tokens # ~4.8 chars/token = ~185B chars.
-# Each data shard is ~250M chars, so we need ~185B / 250M ~= 740 shards.
-# For safety, I bumped that up to 800 shards, and that's why up above I used -n 800 when pre-downloading dataset shards.
-# If we didn't have enough data, the training script would loop around and do multiple epochs over the same data,
-# which would decrease model performance. Possibly 2, 3 or so epochs is ~ok, but certainly not ideal and at 10+ epochs we'd
-# start to overfit hard.
-# 5) That's it, everything else (e.g. the learning rates) is adjusted automatically by the training script.
+# 3) 验证运行时间是否符合我们的预算：
+# 训练脚本使用 Chinchilla 缩放定律来计算最优化 #tokens = 20 * #params。具体来说：
+# 脚本显示我们将训练 71,680 步，每步需要 1.574s 所以：
+# 预估训练时间：71,680 * 1.574s / 60 / 60 = 31.3 小时。
+# 这没问题，符合我们的预算，还剩约 10 小时用于中期训练、SFT、评估和可能的 RL。
+# 可能我们甚至可以容纳 depth=33 或 depth=34，但现在先这样。
+# 4) 最后要注意的是运行所需的训练数据量。
+# 上面的脚本计算出 "Total number of training tokens: 37,580,963,840"
+# tok_eval.py 脚本报告默认分词器设置下平均约 4.8 字符/token。
+# 所以 ~38B tokens * ~4.8 字符/token = ~185B 字符。
+# 每个数据分片约 2.5 亿字符，所以我们需要 ~185B / 250M ~= 740 个分片。
+# 为安全起见，我把它提升到 800 个分片，这就是为什么上面预下载数据集分片时使用 -n 800。
+# 如果我们没有足够的数据，训练脚本会循环并对同一数据进行多个 epoch，
+# 这会降低模型性能。可能 2、3 个 epoch 左右是可以的，但肯定不理想，
+# 而到 10+ 个 epoch 我们会严重过拟合。
+# 5) 就这样，其他所有内容（例如学习率）都由训练脚本自动调整。
 
-# Number of processes/GPUs to use
+# 使用的进程/GPU 数量
 NPROC_PER_NODE=8
 
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- --depth=32 --device_batch_size=8 --run=$WANDB_RUN
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_loss
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_eval
 
-# midtrain
-# NOTE: ensure that we use the same device_batch_size here as the base training script.
+# 中期训练
+# 注意：确保我们这里使用与基础训练脚本相同的 device_batch_size。
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.mid_train -- --device_batch_size=8 --run=$WANDB_RUN
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -i mid
 
@@ -87,8 +87,8 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_sft -- --run=$WANDB_RUN
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -i sft
 
-# generate final report
+# 生成最终报告
 python -m nanochat.report generate
 
-# talk to it
+# 与模型对话
 python -m scripts.chat_web

@@ -1,28 +1,26 @@
 """
-Task intended to make nanochat better in spelling and counting, for example:
+旨在让 nanochat 更擅长拼写和计数的任务，例如：
 
-"How many r are in strawberry?" -> 3
+"strawberry 中有多少个 r？" -> 3
 
-An interesting part of this task is that we will get the assistant to
-solve the problem using a combination of manual counting and Python.
-This is a good problem solving "instinct" to mix into the model and RL
-may further refine it to trust one over the other. If we were extra fancy
-(which we could/should be) we'd add small errors here and there to allow
-the model also learn recoveries. We can do this in future versions.
+这个任务的有趣之处在于我们会让助手结合手动计数和 Python 来解决问题。
+这是一个很好的问题解决“本能”，可以融入到模型中，
+强化学习可能会进一步完善它，让模型更信任其中一种方法。
+如果我们特别复杂（实际上我们可以/应该这样做），我们会在这里加入一些小错误，
+让模型也能学习纠正。我们可以在未来版本中实现这一点。
 
-There are two tasks in this file:
-1. SpellingBee: Counting the number of occurrences of a letter in a word
-2. SimpleSpelling: Simply spelling words
+这个文件中有两个任务：
+1. SpellingBee: 计算单词中某个字母出现的次数
+2. SimpleSpelling: 简单地拼写单词
 
-(1) is the goal, but (2) exists as a highly condensed version of the part
-that makes (1) difficult, which is word spelling. This is non-trivial for an
-LLM because it has to learn how every token (a little semantic chunk/atom)
-maps to the sequence of individual characters that make it up. Larger models
-learn this eventually on their own, but if we want this capability to exist
-in smaller models, we have to actively encourage it by over-representing it
-in the training data. Midtraining is a good place to do this.
+(1) 是目标，但 (2) 作为 (1) 中困难部分的高度浓缩版本而存在，
+困难部分是单词拼写。这对 LLM 来说并不简单，因为它必须学习
+每个 token（一个小的语义块/原子）如何映射到构成它的单个字符序列。
+较大的模型最终会自己学会这一点，但如果我们希望这种能力存在于
+较小的模型中，我们必须通过在训练数据中过度强调它来积极鼓励。
+中期训练是一个很好的地方来做这件事。
 
-To preview a few example conversations, run:
+要预览几个示例对话，请运行：
 python -m tasks.spellingbee
 """
 
@@ -31,16 +29,16 @@ import random
 from tasks.common import Task
 from nanochat.common import download_file_with_lock
 
-# Letters of the alphabet
+# 字母表中的字母
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
-# A list of 370K English words of large variety
+# 一个包含 370K 各种英语单词的列表
 WORD_LIST_URL = "https://raw.githubusercontent.com/dwyl/english-words/refs/heads/master/words_alpha.txt"
 
-# Identical to gsm8k's answer extraction
+# 与 gsm8k 的答案提取相同
 ANSWER_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 def extract_answer(completion):
     """
-    Extract the numerical answer after #### marker.
+    提取 #### 标记后的数字答案。
     """
     match = ANSWER_RE.search(completion)
     if match:
@@ -49,7 +47,7 @@ def extract_answer(completion):
         return match_str
     return None
 
-# User message templates for data augmentation
+# 用于数据增强的用户消息模板
 USER_MSG_TEMPLATES = [
     "How many {letter} are in the word {word}",
     "How many {letter} are in {word}",
@@ -131,68 +129,68 @@ class SpellingBee(Task):
         return self.size
 
     def get_example(self, index):
-        seed = index if self.split == "train" else -(index + 1) # avoid collision at 0
+        seed = index if self.split == "train" else -(index + 1) # 避免 0 处的冲突
         rng = random.Random(seed)
 
-        # pick a random word
+        # 选择一个随机单词
         word = rng.choice(self.words)
-        # pick a letter from it (90%) or a random letter (10%)
+        # 从单词中选择一个字母 (90%) 或随机字母 (10%)
         letter = rng.choice(word) if rng.random() < 0.9 else rng.choice(LETTERS)
 
-        # get the correct answer by simply counting
+        # 通过简单计数获得正确答案
         count = word.count(letter)
 
-        # create a user message, with a bunch of variations as data augmentation
+        # 创建用户消息，使用大量变体作为数据增强
         template = rng.choice(USER_MSG_TEMPLATES)
-        # 30% chance to lowercase the template (lazy people don't use shift)
+        # 30% 的概率将模板转为小写（懒人不用 shift 键）
         if rng.random() < 0.3:
             template = template.lower()
         quote_options = ['', "'", '"']
-        letter_quote = rng.choice(quote_options) # is the letter quoted?
-        word_quote = rng.choice(quote_options) # is the word quoted?
+        letter_quote = rng.choice(quote_options) # 字母是否加引号？
+        word_quote = rng.choice(quote_options) # 单词是否加引号？
         letter_wrapped = f"{letter_quote}{letter}{letter_quote}"
         word_wrapped = f"{word_quote}{word}{word_quote}"
         user_msg = template.format(letter=letter_wrapped, word=word_wrapped)
-        if rng.random() < 0.5: # 50% of people don't even use question marks
+        if rng.random() < 0.5: # 50% 的人甚至不用问号
             user_msg += "?"
 
-        # Now create the ideal assistant response - build as parts (text + tool calls)
+        # 现在创建理想的助手响应 - 构建为部分（文本 + 工具调用）
         assistant_parts = []
         word_letters = ",".join(list(word))
-        manual_text = f"""We are asked to find the number '{letter}' in the word '{word}'. Let me try a manual approach first.
+        manual_text = f"""我们被要求找出单词 '{word}' 中 '{letter}' 的数量。让我先尝试手动方法。
 
-First spell the word out:
+首先拼出单词：
 {word}:{word_letters}
 
-Then count the occurrences of '{letter}':
+然后计算 '{letter}' 的出现次数：
 """
-        # Little simulated loop of the solution process
-        # TODO: This is where the fun starts, we could simulate cute little mistakes
-        # and get the model to review its work and recover from them.
-        # You might of course hope this could arise in RL too, but realistically you'd want to help it out a bit.
+        # 解决过程的小型模拟循环
+        # TODO: 这里是乐趣开始的地方，我们可以模拟一些可爱的小错误
+        # 并让模型审查其工作并从中恢复。
+        # 你当然可能希望这也能在 RL 中出现，但实际上你会想稍微帮助它一下。
         running_count = 0
         for i, char in enumerate(word, 1):
             if char == letter:
                 running_count += 1
-                # note: there deliberately cannot be a space here between i and char
-                # because this would create a different token! (e.g. " a" and "a" are different tokens)
-                manual_text += f"{i}:{char} hit! count={running_count}\n"
+                # 注意：这里 i 和 char 之间故意不能有空格
+                # 因为这会创建不同的 token！（例如 " a" 和 "a" 是不同的 token）
+                manual_text += f"{i}:{char} 命中！count={running_count}\n"
             else:
                 manual_text += f"{i}:{char}\n"
 
-        manual_text += f"\nThis gives us {running_count}."
+        manual_text += f"\n这给我们 {running_count}。"
         assistant_parts.append({"type": "text", "text": manual_text})
-        # Part 2: Python verification
-        assistant_parts.append({"type": "text", "text": "\n\nLet me double check this using Python:\n\n"})
-        # Part 3: Python tool call
+        # 第 2 部分：Python 验证
+        assistant_parts.append({"type": "text", "text": "\n\n让我用 Python 再次确认：\n\n"})
+        # 第 3 部分：Python 工具调用
         python_expr = f"'{word}'.count('{letter}')"
         assistant_parts.append({"type": "python", "text": python_expr})
-        # Part 4: Python output
+        # 第 4 部分：Python 输出
         assistant_parts.append({"type": "python_output", "text": str(count)})
-        # Part 5: Final answer
-        assistant_parts.append({"type": "text", "text": f"\n\nPython gives us {count}.\n\nMy final answer is:\n\n#### {count}"})
+        # 第 5 部分：最终答案
+        assistant_parts.append({"type": "text", "text": f"\n\nPython 给我们 {count}。\n\n我的最终答案是：\n\n#### {count}"})
 
-        # return the full conversation
+        # 返回完整的对话
         messages = [
             {"role": "user", "content": user_msg},
             {"role": "assistant", "content": assistant_parts}
@@ -204,32 +202,32 @@ Then count the occurrences of '{letter}':
 
     def evaluate(self, conversation, assistant_response):
         """
-        Given (conversation, completion), return evaluation outcome (0 = wrong, 1 = correct)
-        Identical to gsm8k's evaluation.
+        给定 (conversation, completion)，返回评估结果 (0 = 错误, 1 = 正确)
+        与 gsm8k 的评估相同。
         """
-        assert isinstance(assistant_response, str), "Assuming simple string response for now"
-        # First extract the ground truth answer from the conversation
+        assert isinstance(assistant_response, str), "现在假设是简单字符串响应"
+        # 首先从对话中提取真实答案
         assistant_message = conversation['messages'][-1]
-        assert assistant_message['role'] == "assistant", "Last message must be from the Assistant"
-        assert isinstance(assistant_message['content'], list), "This is expected to be a list of parts"
-        # The last text part contains the final answer with ####
+        assert assistant_message['role'] == "assistant", "最后一条消息必须来自助手"
+        assert isinstance(assistant_message['content'], list), "这应该是一个部分列表"
+        # 最后一个文本部分包含与 #### 一起的最终答案
         last_text_part = assistant_message['content'][-1]['text']
-        # Extract both the ground truth answer and the predicted answer
+        # 提取真实答案和预测答案
         ref_num = extract_answer(last_text_part)
         pred_num = extract_answer(assistant_response)
-        # Compare and return the success as int
+        # 比较并返回成功与否作为整数
         is_correct = int(pred_num == ref_num)
         return is_correct
 
     def reward(self, conversation, assistant_response):
-        """ Use simple 0-1 reward just like gsm8k."""
+        """ 使用简单的 0-1 奖励，就像 gsm8k 一样。"""
         is_correct = self.evaluate(conversation, assistant_response)
         is_correct_float = float(is_correct)
         return is_correct_float
 
 
 class SimpleSpelling(Task):
-    """Much simpler task designed to get the model to just practice spelling words."""
+    """更简单的任务，旨在让模型练习拼写单词。"""
 
     def __init__(self, size=1000, split="train", **kwargs):
         super().__init__(**kwargs)
@@ -241,7 +239,7 @@ class SimpleSpelling(Task):
         with open(word_list_path, 'r', encoding='utf-8') as f:
             words = [line.strip() for line in f]
         rng = random.Random(42)
-        rng.shuffle(words) # use a different word order than the SpellingBee task
+        rng.shuffle(words) # 使用与 SpellingBee 任务不同的单词顺序
         self.words = words
 
     @property
@@ -252,12 +250,12 @@ class SimpleSpelling(Task):
         return self.size
 
     def get_example(self, index):
-        seed = index if self.split == "train" else -(index + 1) # avoid collision at 0
+        seed = index if self.split == "train" else -(index + 1) # 避免 0 处的冲突
         rng = random.Random(seed)
-        # pick a random word
+        # 选择一个随机单词
         word = rng.choice(self.words)
         word_letters = ",".join(list(word))
-        # return the full conversation
+        # 返回完整的对话
         messages = [
             {"role": "user", "content": f"Spell the word: {word}"},
             {"role": "assistant", "content": f"{word}:{word_letters}"}
@@ -270,14 +268,14 @@ class SimpleSpelling(Task):
 
 if __name__ == "__main__":
 
-    # preview the SpellingBee task, first 10 examples
+    # 预览 SpellingBee 任务，前 10 个示例
     task = SpellingBee()
     for i in range(10):
         ex = task.get_example(i)
         print("=" * 100)
         print(ex['messages'][0]['content'])
         print("-" * 100)
-        # Assistant content is now a list of parts
+        # Assistant content 现在是一个部分列表
         assistant_parts = ex['messages'][1]['content']
         for part in assistant_parts:
             if part['type'] == 'text':
@@ -289,7 +287,7 @@ if __name__ == "__main__":
         print()
         print("-" * 100)
 
-    # # preview the SimpleSpelling task, first 10 examples
+    # # 预览 SimpleSpelling 任务，前 10 个示例
     # task = SimpleSpelling()
     # for i in range(10):
     #     ex = task.get_example(i)
@@ -298,7 +296,7 @@ if __name__ == "__main__":
     #     print("-" * 100)
     #     print(ex['messages'][1]['content'])
 
-    # # also scrutinize the tokenization (last example only)
+    # # 还可以检查分词结果（仅最后一个示例）
     # from nanochat.tokenizer import get_tokenizer
     # tokenizer = get_tokenizer()
     # ids, mask = tokenizer.render_conversation(ex)

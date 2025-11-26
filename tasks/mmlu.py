@@ -1,5 +1,5 @@
 """
-The MMLU dataset.
+MMLU 数据集。
 https://huggingface.co/datasets/cais/mmlu
 """
 
@@ -21,7 +21,7 @@ class MMLU(Task):
         self.split = split
         self.ds = load_dataset("cais/mmlu", subset, split=split).shuffle(seed=42)
         if subset == "auxiliary_train":
-            # I don't understand why but the auxiliary_train rows have some weird additional 'train' wrapper
+            # 我不理解为什么，但 auxiliary_train 的行有一些奇怪的额外 'train' 包装
             self.ds = self.ds.map(lambda row: row['train'], remove_columns=['train'])
 
     @property
@@ -33,12 +33,12 @@ class MMLU(Task):
 
     def get_example(self, index):
         row = self.ds[index]
-        question = row["question"] # the question text
-        choices = row["choices"] # the text of each choice
-        answer = row["answer"] # index of the answer, e.g. 0,1,2,3 (for A,B,C,D)
-        subject = row["subject"] # e.g. "college_biology", "college_chemistry", etc.
+        question = row["question"] # 问题文本
+        choices = row["choices"] # 每个选项的文本
+        answer = row["answer"] # 答案索引，例如 0,1,2,3 (对应 A,B,C,D)
+        subject = row["subject"] # 例如 "college_biology", "college_chemistry" 等
         assert len(choices) == 4, "MMLU should have 4 choices"
-        # create and return the Conversation object
+        # 创建并返回 Conversation 对象
         user_message = render_mc(question, self.letters, choices)
         assistant_message = self.letters[answer]
         messages = [
@@ -47,14 +47,14 @@ class MMLU(Task):
         ]
         conversation = {
             "messages": messages,
-            "subject": subject, # might be useful later for grouping metrics by subject
-            "letters": self.letters, # useful during evaluation, so we can narrow and clamp the assistant prediction to one of the letters
+            "subject": subject, # 以后可能用于按学科分组指标
+            "letters": self.letters, # 在评估时有用，可以将助手预测限制在这些选项字母中
         }
         return conversation
 
     def evaluate(self, conversation, assistant_response):
-        # the assert here is not strictly speaking needed, but currently the way we eval, we expect this to be true
-        # I'm going to leave the assert here to prevent footguns, but possibly in the future can remove it.
+        # 严格来说这里的 assert 不是必需的，但目前我们的评估方式期望这是成立的
+        # 我在这里保留 assert 以防止意外错误，但未来可能会移除它。
         assert assistant_response in self.letters, f"MMLU answer {assistant_response} is expected to be one of {self.letters}"
-        assistant_message = conversation['messages'][-1]['content'] # e.g. "A"
+        assistant_message = conversation['messages'][-1]['content'] # 例如 "A"
         return assistant_response == assistant_message

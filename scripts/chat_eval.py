@@ -1,9 +1,9 @@
 """
-Evaluate the Chat model.
-All the generic code lives here, and all the evaluation-specific
-code lives in nanochat directory and is imported from here.
+评估 Chat 模型。
+所有通用代码都在这里，所有与评估相关的代码
+都在 nanochat 目录中并从这里导入。
 
-Example runs:
+运行示例：
 python -m scripts.chat_eval -a ARC-Easy
 torchrun --nproc_per_node=8 -m scripts.chat_eval -- -a ARC-Easy
 """
@@ -26,7 +26,7 @@ from tasks.gsm8k import GSM8K
 from tasks.spellingbee import SpellingBee
 
 # -----------------------------------------------------------------------------
-# Generative evaluation loop (we go one problem at a time, sample, evaluate)
+# 生成式评估循环（我们逐个问题进行采样和评估）
 
 def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_new_tokens, temperature, top_k, max_problems=None):
 
@@ -40,9 +40,9 @@ def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_
     for i in range(ddp_rank, num_problems, ddp_world_size):
         conversation = task_object[i]
 
-        # Tokenize the prompt
+        # 分词提示
         encoded_prompt = tokenizer.render_for_completion(conversation)
-        # Get the completions
+        # 获取完成结果
         results, _ = engine.generate_batch(
             encoded_prompt,
             num_samples=num_samples,
@@ -50,24 +50,24 @@ def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_
             temperature=temperature,
             top_k=top_k,
         )
-        # Decode the completions as text
+        # 将完成结果解码为文本
         prefix_length = len(encoded_prompt)
         completions = [tokenizer.decode(result_tokens[prefix_length:]) for result_tokens in results]
-        # Evaluate success criteria
+        # 评估成功标准
         outcomes = [task_object.evaluate(conversation, completion) for completion in completions]
         passed = any(outcomes)
 
-        # Keep stats
+        # 保持统计
         total += 1
         num_passed += int(passed)
 
-        # Logging (overwrite the same line in the console)
+        # 日志记录（在控制台中覆盖同一行）
         print(f"\r\033[KRank {ddp_rank} | {num_passed}/{total} ({100*num_passed/total:.2f}%)", end='', flush=True)
 
-    # Finish the in-place progress line with a newline before final summary
+    # 在最终汇总之前用换行符结束就地进度行
     print()
 
-    # Aggregate results across all ranks
+    # 在所有 rank 上聚合结果
     if ddp:
         num_passed_tensor = torch.tensor([num_passed], dtype=torch.long, device=device)
         total_tensor = torch.tensor([total], dtype=torch.long, device=device)
@@ -79,49 +79,49 @@ def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_
     print0("=" * 50)
     print0(f"Final: {num_passed}/{total} ({100*num_passed/total:.2f}%)")
 
-    # Return the accuracy
+    # 返回准确率
     return num_passed/total
 
 # -----------------------------------------------------------------------------
-# Categorical evaluation loop
-# A lot easier because we don't have to sample. Therefore, we can actually go
-# batches at a time and just check the logits for correct answer choices.
+# 分类评估循环
+# 更容易因为不需要采样。因此，我们实际上可以批量处理
+# 并只检查正确答案选项的 logits。
 
 def run_categorical_eval(task_object, tokenizer, model, batch_size, max_problems=None):
 
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
     device = model.get_device()
-    bos = tokenizer.get_bos_token_id() # use BOS as pad token is ok, these positions are ignored
+    bos = tokenizer.get_bos_token_id() # 使用 BOS 作为 pad token 是 OK 的，这些位置会被忽略
 
-    # We'll process batches of independent problems at a time because there is no sampling needed
+    # 我们会批量处理独立的问题，因为不需要采样
     num_problems = len(task_object) if max_problems is None else min(len(task_object), max_problems)
     ceil_div = lambda x, y: -(-x // y)
     num_batches = ceil_div(num_problems, batch_size)
 
-    # Run the evaluation
-    letter_to_id_cache = {} # many letters will repeat often, let's save the tokenizer some work
+    # 运行评估
+    letter_to_id_cache = {} # 很多字母会经常重复，让我们给分词器省点工作
     num_passed, total = 0, 0
     for i in range(ddp_rank, num_batches, ddp_world_size):
         i0, i1 = i * batch_size, min((i + 1) * batch_size, num_problems)
 
-        # Prepare the batch of problems. They might all be of different length, so we pad/collate them.
+        # 准备问题批次。它们可能都是不同长度的，所以我们进行填充/整理。
         conversations = [task_object[ii] for ii in range(i0, i1)]
-        prompt_ids = [tokenizer.render_for_completion(conversation) for conversation in conversations] # TODO: remake the way this works
+        prompt_ids = [tokenizer.render_for_completion(conversation) for conversation in conversations] # TODO: 重新设计这个工作方式
         max_length = max(len(ids) for ids in prompt_ids)
-        answer_time_positions = [len(ids) - 1 for ids in prompt_ids] # where the last token is (and the predicted answer)
+        answer_time_positions = [len(ids) - 1 for ids in prompt_ids] # 最后一个 token 在哪里（以及预测的答案）
         padded_prompt_ids = [ids + [bos] * (max_length - len(ids)) for ids in prompt_ids]
         prompt_ids = torch.tensor(padded_prompt_ids, dtype=torch.long, device=device)
 
-        # Get the logits for the whole batch of conversations in parallel (efficiency win here)
+        # 并行获取整个对话批次的 logits（这里效率获胜）
         with torch.no_grad():
             logits = model(prompt_ids) # (B, T, V)
 
-        # Focus on the available answer on just the letters corresponding to choices
-        # Note that this helps the evaluation a lot because it specifically narrows the focus to only the available letters
-        # The much harder alternative would be to just generate from the Assistant and check if it responded with the correct
-        # letter (e.g. A, B, C, D), but evaluations typically make the task easier in this way.
+        # 将可用答案聚焦到仅对应选项的字母上
+        # 注意这对评估帮助很大，因为它特别将焦点缩小到仅可用的字母
+        # 更难的替代方案是从助手生成并检查它是否以正确的字母响应
+        # （例如 A, B, C, D），但评估通常以这种方式使任务变得更容易。
         for idx, conversation in enumerate(conversations):
-            # get the token ids of all the available letters of this problem
+            # 获取此问题所有可用字母的 token ids
             letters = conversation['letters']
             letter_ids = []
             for letter in letters:
@@ -130,18 +130,18 @@ def run_categorical_eval(task_object, tokenizer, model, batch_size, max_problems
                     assert len(encoded_letter) == 1, "Each letter must be a single token"
                     letter_to_id_cache[letter] = encoded_letter[0]
                 letter_ids.append(letter_to_id_cache[letter])
-            # focus logits just down to the answer position and the available letters of the answer
+            # 将 logits 聚焦到答案位置和可用的答案字母
             answer_pos = answer_time_positions[idx]
             focus_logits = logits[idx, answer_pos, letter_ids]
-            # get the argmax letter (the predicted answer)
+            # 获取 argmax 字母（预测的答案）
             argmax_letter_id = focus_logits.argmax(dim=-1).item()
             predicted_letter = letters[argmax_letter_id]
-            # evaluate the outcome
+            # 评估结果
             outcome = task_object.evaluate(conversation, predicted_letter)
             num_passed += int(outcome)
             total += 1
 
-    # Aggregate results across all ranks
+    # 在所有 rank 上聚合结果
     if ddp:
         num_passed_tensor = torch.tensor([num_passed], dtype=torch.long, device=device)
         total_tensor = torch.tensor([total], dtype=torch.long, device=device)
@@ -159,7 +159,7 @@ def run_categorical_eval(task_object, tokenizer, model, batch_size, max_problems
 def run_chat_eval(task_name, model, tokenizer, engine,
                    batch_size=1, num_samples=1, max_new_tokens=512, temperature=0.0, top_k=50,
                    max_problems=None):
-    # Create the evaluation object
+    # 创建评估对象
     task_module = {
         'HumanEval': HumanEval,
         'MMLU': partial(MMLU, subset="all", split="test"),
@@ -169,7 +169,7 @@ def run_chat_eval(task_name, model, tokenizer, engine,
         'SpellingBee': partial(SpellingBee, size=256, split="test"),
     }[task_name]
     task_object = task_module()
-    # Run the evaluation
+    # 运行评估
     if task_object.eval_type == 'generative':
         acc = run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_new_tokens, temperature, top_k, max_problems=max_problems)
     elif task_object.eval_type == 'categorical':
@@ -181,7 +181,7 @@ def run_chat_eval(task_name, model, tokenizer, engine,
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    # Parse command-line arguments
+    # 解析命令行参数
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--source', type=str, required=True, help="Source of the model: sft|mid|rl")
     parser.add_argument('-a', '--task-name', type=str, default=None, help="Task name. Default = all tasks. Use | to split multiple tasks.")
@@ -205,19 +205,19 @@ if __name__ == "__main__":
     model, tokenizer, meta = load_model(args.source, device, phase="eval", model_tag=args.model_tag, step=args.step)
     engine = Engine(model, tokenizer)
 
-    # Get the tasks to evaluate on
+    # 获取要评估的任务
     all_tasks = ['ARC-Easy', 'ARC-Challenge', 'MMLU', 'GSM8K', 'HumanEval', 'SpellingBee']
     baseline_accuracies = {
-        'ARC-Easy': 0.25, # multiple choice 1 of 4 => 25%
-        'ARC-Challenge': 0.25, # multiple choice 1 of 4 => 25%
-        'MMLU': 0.25, # multiple choice 1 of 4 => 25%
-        'GSM8K': 0.0, # open-ended => 0%
-        'HumanEval': 0.0, # open-ended => 0%
-        'SpellingBee': 0.0, # open-ended => 0%
+        'ARC-Easy': 0.25, # 四选一 => 25%
+        'ARC-Challenge': 0.25, # 四选一 => 25%
+        'MMLU': 0.25, # 四选一 => 25%
+        'GSM8K': 0.0, # 开放式 => 0%
+        'HumanEval': 0.0, # 开放式 => 0%
+        'SpellingBee': 0.0, # 开放式 => 0%
     }
     task_names = all_tasks if args.task_name is None else args.task_name.split('|')
 
-    # Run all the task evaluations sequentially
+    # 顺序运行所有任务评估
     results = {}
     for task_name in task_names:
         with autocast_ctx:
@@ -234,11 +234,11 @@ if __name__ == "__main__":
             results[task_name] = acc
             print0(f"{task_name} accuracy: {100 * acc:.2f}%")
 
-    # Log to report
+    # 记录到报告
     from nanochat.report import get_report
     all_tasks_were_evaluated = all(task_name in results for task_name in all_tasks)
-    # calculate the ChatCORE metric if we can (similar to CORE, it's the mean centered accuracy)
-    # this way, ChatCORE ranges from 0 (at random baseline) to 1 (peak performance)
+    # 如果可以的话计算 ChatCORE 指标（类似于 CORE，它是中心化准确率的平均值）
+    # 这样，ChatCORE 范围从 0（随机基线）到 1（峰值性能）
     chatcore_metric_dict = {}
     if all_tasks_were_evaluated:
         centered_mean = 0
