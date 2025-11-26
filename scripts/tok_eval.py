@@ -1,11 +1,11 @@
 """
-Evaluate compression ratio of the tokenizer.
+评估分词器的压缩率。
 """
 
 from nanochat.tokenizer import get_tokenizer, RustBPETokenizer
 from nanochat.dataset import parquets_iter_batched
 
-# Random text I got from a random website this morning
+# 我今天早上从一个随机网站获取的随机文本
 news_text = r"""
 (Washington, D.C., July 9, 2025)- Yesterday, Mexico’s National Service of Agro-Alimentary Health, Safety, and Quality (SENASICA) reported a new case of New World Screwworm (NWS) in Ixhuatlan de Madero, Veracruz in Mexico, which is approximately 160 miles northward of the current sterile fly dispersal grid, on the eastern side of the country and 370 miles south of the U.S./Mexico border. This new northward detection comes approximately two months after northern detections were reported in Oaxaca and Veracruz, less than 700 miles away from the U.S. border, which triggered the closure of our ports to Mexican cattle, bison, and horses on May 11, 2025.
 
@@ -14,7 +14,7 @@ While USDA announced a risk-based phased port re-opening strategy for cattle, bi
 “The United States has promised to be vigilant — and after detecting this new NWS case, we are pausing the planned port reopening’s to further quarantine and target this deadly pest in Mexico. We must see additional progress combatting NWS in Veracruz and other nearby Mexican states in order to reopen livestock ports along the Southern border,” said U.S. Secretary of Agriculture Brooke L. Rollins. “Thanks to the aggressive monitoring by USDA staff in the U.S. and in Mexico, we have been able to take quick and decisive action to respond to the spread of this deadly pest.”
 """.strip()
 
-# Random Korean text (to test non-English compression)
+# 随机韩语文本（用于测试非英语压缩）
 korean_text = r"""
 정직한 사실 위에, 공정한 시선을 더하다
 Herald Korea Times
@@ -29,7 +29,7 @@ Herald Korea Times
 **모든 쟁점에 대해 ‘무엇이 쟁점인지’, ‘누가 무엇을 주장하는지’, ‘사실은 무엇인지’**를 명확히 전달하는 데 집중합니다.
 """.strip()
 
-# Random piece of code
+# 随机代码片段
 code_text = r"""
 class BasicTokenizer(Tokenizer):
 
@@ -143,7 +143,7 @@ science_text = r"""
 Photosynthesis is a photochemical energy transduction process in which light-harvesting pigment–protein complexes within the thylakoid membranes of oxygenic phototrophs absorb photons and initiate charge separation at the reaction center, driving the linear electron transport chain from water to NADP⁺ via photosystem II, the cytochrome b₆f complex, and photosystem I, concomitantly generating a trans-thylakoid proton motive force utilized by chloroplastic ATP synthase. The light-dependent reactions produce ATP and NADPH, which fuel the Calvin–Benson–Bassham cycle in the stroma, wherein ribulose-1,5-bisphosphate is carboxylated by ribulose-1,5-bisphosphate carboxylase/oxygenase (RuBisCO) to form 3-phosphoglycerate, subsequently reduced and regenerated through a series of enzymatic steps, enabling net assimilation of CO₂ into triose phosphates and ultimately carbohydrates. This process is tightly regulated by photoprotective mechanisms, redox feedback, and metabolite flux, representing a central biochemical pathway coupling solar energy capture to the biosphere’s primary productivity.
 """.strip()
 
-# The tokenizer was trained on data from earlier shards, so it has seen this data
+# 分词器是在早期分片的数据上训练的，所以它见过这些数据
 train_docs = next(parquets_iter_batched(split="train"))
 train_text = "\n".join(train_docs)
 val_docs = next(parquets_iter_batched(split="val"))
@@ -160,16 +160,16 @@ all_text = [
 if val_text:
     all_text.append(("fwe-val", val_text))
 
-# Try out current default compared to GPT-2 and GPT-4 tokenizers
+# 尝试将当前默认分词器与 GPT-2 和 GPT-4 分词器进行比较
 tokenizer_results = {}
 vocab_sizes = {}
 
 for tokenizer_name in ["gpt2", "gpt4", "ours"]:
 
     if tokenizer_name == "gpt2":
-        tokenizer = RustBPETokenizer.from_pretrained("gpt2") # gpt-2 base model tokenizer
+        tokenizer = RustBPETokenizer.from_pretrained("gpt2") # gpt-2 基础模型分词器
     elif tokenizer_name == "gpt4":
-        tokenizer = RustBPETokenizer.from_pretrained("cl100k_base") # gpt-4 base model tokenizer
+        tokenizer = RustBPETokenizer.from_pretrained("cl100k_base") # gpt-4 基础模型分词器
     else:
         tokenizer = get_tokenizer()
 
@@ -189,19 +189,19 @@ for tokenizer_name in ["gpt2", "gpt4", "ours"]:
             'ratio': ratio
         }
 
-# ANSI color codes
+# ANSI 颜色代码
 GREEN = '\033[92m'
 RED = '\033[91m'
 RESET = '\033[0m'
 
-# Print vocab sizes
+# 打印词汇表大小
 print(f"\nVocab sizes:")
 print(f"GPT-2: {vocab_sizes['gpt2']}")
 print(f"GPT-4: {vocab_sizes['gpt4']}")
 print(f"Ours: {vocab_sizes['ours']}")
 
 def print_comparison(baseline_name, baseline_results, ours_results, all_text):
-    """Print comparison table between baseline tokenizer and ours."""
+    """打印基线分词器和我们的分词器之间的比较表。"""
     print(f"\nComparison with {baseline_name}:")
     print("=" * 95)
     print(f"{'Text Type':<10} {'Bytes':<8} {baseline_name:<15} {'Ours':<15} {'Relative':<12} {'Better':<10}")
@@ -212,11 +212,11 @@ def print_comparison(baseline_name, baseline_results, ours_results, all_text):
         baseline_data = baseline_results[name]
         ours_data = ours_results[name]
 
-        # Calculate relative difference (positive means ours is better, negative means worse)
-        # Using tokens: fewer tokens is better, so we calculate (baseline_tokens - ours_tokens) / baseline_tokens
+        # 计算相对差异（正数表示我们的更好，负数表示更差）
+        # 使用 token 数：更少的 token 更好，所以我们计算 (baseline_tokens - ours_tokens) / baseline_tokens
         relative_diff = ((baseline_data['tokens'] - ours_data['tokens']) / baseline_data['tokens']) * 100
 
-        # Determine which has better compression (higher ratio = better)
+        # 确定哪个有更好的压缩（更高的比率 = 更好）
         if baseline_data['ratio'] > ours_data['ratio']:
             baseline_color, ours_color = GREEN, RED
             better = baseline_name
@@ -238,11 +238,11 @@ def print_comparison(baseline_name, baseline_results, ours_results, all_text):
               f"{diff_color}{relative_diff:+7.1f}%{RESET}     "
               f"{better:<10}")
 
-# Print comparisons
+# 打印比较结果
 print_comparison("GPT-2", tokenizer_results['gpt2'], tokenizer_results['ours'], all_text)
 print_comparison("GPT-4", tokenizer_results['gpt4'], tokenizer_results['ours'], all_text)
 
-# Log to report
+# 记录到报告
 from nanochat.report import get_report
 lines = []
 for baseline_name in ["GPT-2", "GPT-4"]:

@@ -1,10 +1,10 @@
 """
-The base/pretraining dataset is a set of parquet files.
-This file contains utilities for:
-- iterating over the parquet files and yielding documents from it
-- download the files on demand if they are not on disk
+基础/预训练数据集是一组 parquet 文件。
+此文件包含以下功能：
+- 遍历 parquet 文件并从中产出文档
+- 如果文件不在磁盘上则按需下载
 
-For details of how the dataset was prepared, see `repackage_data_reference.py`.
+关于数据集准备的详细信息，请参见 `repackage_data_reference.py`。
 """
 
 import os
@@ -17,21 +17,21 @@ from multiprocessing import Pool
 from nanochat.common import get_base_dir
 
 # -----------------------------------------------------------------------------
-# The specifics of the current pretraining dataset
+# 当前预训练数据集的具体信息
 
-# The URL on the internet where the data is hosted and downloaded from on demand
+# 数据托管和按需下载的互联网 URL
 BASE_URL = "https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
-MAX_SHARD = 1822 # the last datashard is shard_01822.parquet
-index_to_filename = lambda index: f"shard_{index:05d}.parquet" # format of the filenames
+MAX_SHARD = 1822 # 最后一个数据分片是 shard_01822.parquet
+index_to_filename = lambda index: f"shard_{index:05d}.parquet" # 文件名格式
 base_dir = get_base_dir()
 DATA_DIR = os.path.join(base_dir, "base_data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # -----------------------------------------------------------------------------
-# These functions are useful utilities to other modules, can/should be imported
+# 这些函数是对其他模块有用的工具，可以/应该被导入
 
 def list_parquet_files(data_dir=None):
-    """ Looks into a data dir and returns full paths to all parquet files. """
+    """ 查看数据目录并返回所有 parquet 文件的完整路径。 """
     data_dir = DATA_DIR if data_dir is None else data_dir
     parquet_files = sorted([
         f for f in os.listdir(data_dir)
@@ -42,9 +42,9 @@ def list_parquet_files(data_dir=None):
 
 def parquets_iter_batched(split, start=0, step=1):
     """
-    Iterate through the dataset, in batches of underlying row_groups for efficiency.
-    - split can be "train" or "val". the last parquet file will be val.
-    - start/step are useful for skipping rows in DDP. e.g. start=rank, step=world_size
+    遍历数据集，以底层 row_groups 为批次以提高效率。
+    - split 可以是 "train" 或 "val"。最后一个 parquet 文件将是 val。
+    - start/step 用于在 DDP 中跳过行。例如 start=rank, step=world_size
     """
     assert split in ["train", "val"], "split must be 'train' or 'val'"
     parquet_paths = list_parquet_files()
@@ -58,46 +58,46 @@ def parquets_iter_batched(split, start=0, step=1):
 
 # -----------------------------------------------------------------------------
 def download_single_file(index):
-    """ Downloads a single file index, with some backoff """
+    """ 下载单个文件索引，带退避重试 """
 
-    # Construct the local filepath for this file and skip if it already exists
+    # 构建此文件的本地路径，如果已存在则跳过
     filename = index_to_filename(index)
     filepath = os.path.join(DATA_DIR, filename)
     if os.path.exists(filepath):
         print(f"Skipping {filepath} (already exists)")
         return True
 
-    # Construct the remote URL for this file
+    # 构建此文件的远程 URL
     url = f"{BASE_URL}/{filename}"
     print(f"Downloading {filename}...")
 
-    # Download with retries
+    # 带重试的下载
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            # Write to temporary file first
+            # 先写入临时文件
             temp_path = filepath + f".tmp"
             with open(temp_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
+                for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1MB 块
                     if chunk:
                         f.write(chunk)
-            # Move temp file to final location
+            # 将临时文件移动到最终位置
             os.rename(temp_path, filepath)
             print(f"Successfully downloaded {filename}")
             return True
 
         except (requests.RequestException, IOError) as e:
             print(f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
-            # Clean up any partial files
+            # 清理任何部分文件
             for path in [filepath + f".tmp", filepath]:
                 if os.path.exists(path):
                     try:
                         os.remove(path)
                     except:
                         pass
-            # Try a few times with exponential backoff: 2^attempt seconds
+            # 使用指数退避重试几次：2^attempt 秒
             if attempt < max_attempts:
                 wait_time = 2 ** attempt
                 print(f"Waiting {wait_time} seconds before retry...")

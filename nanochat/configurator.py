@@ -1,17 +1,17 @@
 """
-Poor Man's Configurator. Probably a terrible idea. Example usage:
+穷人版配置器。可能是个糟糕的主意。使用示例：
 $ python train.py config/override_file.py --batch_size=32
-this will first run config/override_file.py, then override batch_size to 32
+这将首先运行 config/override_file.py，然后将 batch_size 覆盖为 32
 
-The code in this file will be run as follows from e.g. train.py:
+此文件中的代码将按如下方式从例如 train.py 运行：
 >>> exec(open('configurator.py').read())
 
-So it's not a Python module, it's just shuttling this code away from train.py
-The code in this script then overrides the globals()
+所以它不是一个 Python 模块，只是将这段代码从 train.py 中移出
+此脚本中的代码然后覆盖 globals()
 
-I know people are not going to love this, I just really dislike configuration
-complexity and having to prepend config. to every single variable. If someone
-comes up with a better simple Python solution I am all ears.
+我知道人们不会喜欢这个，我只是真的不喜欢配置
+的复杂性以及必须在每个变量前加上 config. 前缀。如果有人
+想出更好的简单 Python 解决方案，我洗耳恭听。
 """
 
 import os
@@ -25,7 +25,7 @@ def print0(s="",**kwargs):
 
 for arg in sys.argv[1:]:
     if '=' not in arg:
-        # assume it's the name of a config file
+        # 假设它是配置文件的名称
         assert not arg.startswith('--')
         config_file = arg
         print0(f"Overriding config with {config_file}:")
@@ -33,23 +33,23 @@ for arg in sys.argv[1:]:
             print0(f.read())
         exec(open(config_file).read())
     else:
-        # assume it's a --key=value argument
+        # 假设它是 --key=value 参数
         assert arg.startswith('--')
         key, val = arg.split('=')
         key = key[2:]
         if key in globals():
             try:
-                # attempt to eval it it (e.g. if bool, number, or etc)
+                # 尝试 eval 它（例如如果是 bool、数字等）
                 attempt = literal_eval(val)
             except (SyntaxError, ValueError):
-                # if that goes wrong, just use the string
+                # 如果出错，就使用字符串
                 attempt = val
-            # ensure the types match ok
+            # 确保类型匹配
             if globals()[key] is not None:
                 attempt_type = type(attempt)
                 default_type = type(globals()[key])
                 assert attempt_type == default_type, f"Type mismatch: {attempt_type} != {default_type}"
-            # cross fingers
+            # 祈求好运
             print0(f"Overriding: {key} = {attempt}")
             globals()[key] = attempt
         else:

@@ -1,5 +1,5 @@
 """
-Utilities for generating training report cards. More messy code than usual, will fix.
+生成训练报告卡的工具。代码比较乱，以后会修复。
 """
 
 import os
@@ -13,7 +13,7 @@ import psutil
 import torch
 
 def run_command(cmd):
-    """Run a shell command and return output, or None if it fails."""
+    """运行 shell 命令并返回输出，如果失败则返回 None。"""
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
@@ -23,23 +23,23 @@ def run_command(cmd):
         return None
 
 def get_git_info():
-    """Get current git commit, branch, and dirty status."""
+    """获取当前 git 提交、分支和脏状态。"""
     info = {}
     info['commit'] = run_command("git rev-parse --short HEAD") or "unknown"
     info['branch'] = run_command("git rev-parse --abbrev-ref HEAD") or "unknown"
 
-    # Check if repo is dirty (has uncommitted changes)
+    # 检查仓库是否有未提交的更改
     status = run_command("git status --porcelain")
     info['dirty'] = bool(status) if status is not None else False
 
-    # Get commit message
+    # 获取提交消息
     info['message'] = run_command("git log -1 --pretty=%B") or ""
-    info['message'] = info['message'].split('\n')[0][:80]  # First line, truncated
+    info['message'] = info['message'].split('\n')[0][:80]  # 第一行，截断
 
     return info
 
 def get_gpu_info():
-    """Get GPU information."""
+    """获取 GPU 信息。"""
     if not torch.cuda.is_available():
         return {"available": False}
 
@@ -56,27 +56,27 @@ def get_gpu_info():
         info["names"].append(props.name)
         info["memory_gb"].append(props.total_memory / (1024**3))
 
-    # Get CUDA version
+    # 获取 CUDA 版本
     info["cuda_version"] = torch.version.cuda or "unknown"
 
     return info
 
 def get_system_info():
-    """Get system information."""
+    """获取系统信息。"""
     info = {}
 
-    # Basic system info
+    # 基本系统信息
     info['hostname'] = socket.gethostname()
     info['platform'] = platform.system()
     info['python_version'] = platform.python_version()
     info['torch_version'] = torch.__version__
 
-    # CPU and memory
+    # CPU 和内存
     info['cpu_count'] = psutil.cpu_count(logical=False)
     info['cpu_count_logical'] = psutil.cpu_count(logical=True)
     info['memory_gb'] = psutil.virtual_memory().total / (1024**3)
 
-    # User and environment
+    # 用户和环境
     info['user'] = os.environ.get('USER', 'unknown')
     info['nanochat_base_dir'] = os.environ.get('NANOCHAT_BASE_DIR', 'out')
     info['working_dir'] = os.getcwd()
@@ -84,9 +84,9 @@ def get_system_info():
     return info
 
 def estimate_cost(gpu_info, runtime_hours=None):
-    """Estimate training cost based on GPU type and runtime."""
+    """根据 GPU 类型和运行时间估算训练成本。"""
 
-    # Rough pricing, from Lambda Cloud
+    # 粗略定价，来自 Lambda Cloud
     default_rate = 2.0
     gpu_hourly_rates = {
         "H100": 3.00,
@@ -97,7 +97,7 @@ def estimate_cost(gpu_info, runtime_hours=None):
     if not gpu_info.get("available"):
         return None
 
-    # Try to identify GPU type from name
+    # 尝试从名称识别 GPU 类型
     hourly_rate = None
     gpu_name = gpu_info["names"][0] if gpu_info["names"] else "unknown"
     for gpu_type, rate in gpu_hourly_rates.items():
@@ -106,7 +106,7 @@ def estimate_cost(gpu_info, runtime_hours=None):
             break
 
     if hourly_rate is None:
-        hourly_rate = default_rate * gpu_info["count"]  # Default estimate
+        hourly_rate = default_rate * gpu_info["count"]  # 默认估算
 
     return {
         "hourly_rate": hourly_rate,
@@ -115,7 +115,7 @@ def estimate_cost(gpu_info, runtime_hours=None):
     }
 
 def generate_header():
-    """Generate the header for a training report."""
+    """生成训练报告的头部。"""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     git_info = get_git_info()
@@ -160,14 +160,14 @@ Generated: {timestamp}
 
 """
 
-    # bloat metrics: package all of the source code and assess its weight
+    # 膨胀指标：打包所有源代码并评估其权重
     packaged = run_command('files-to-prompt . -e py -e md -e rs -e html -e toml -e sh --ignore "*target*" --cxml')
     num_chars = len(packaged)
     num_lines = len(packaged.split('\n'))
     num_files = len([x for x in packaged.split('\n') if x.startswith('<source>')])
-    num_tokens = num_chars // 4 # assume approximately 4 chars per token
+    num_tokens = num_chars // 4 # 假设大约每 4 个字符一个 token
 
-    # count dependencies via uv.lock
+    # 通过 uv.lock 计算依赖项数量
     uv_lock_lines = 0
     if os.path.exists('uv.lock'):
         with open('uv.lock', 'r', encoding='utf-8') as f:
@@ -187,10 +187,10 @@ Generated: {timestamp}
 # -----------------------------------------------------------------------------
 
 def slugify(text):
-    """Slugify a text string."""
+    """将文本字符串转换为 slug 格式。"""
     return text.lower().replace(" ", "-")
 
-# the expected files and their order
+# 预期的文件及其顺序
 EXPECTED_FILES = [
     "tokenizer-training.md",
     "tokenizer-evaluation.md",
@@ -204,11 +204,11 @@ EXPECTED_FILES = [
     "chat-rl.md",
     "chat-evaluation-rl.md",
 ]
-# the metrics we're currently interested in
+# 我们当前关注的指标
 chat_metrics = ["ARC-Easy", "ARC-Challenge", "MMLU", "GSM8K", "HumanEval", "ChatCORE"]
 
 def extract(section, keys):
-    """simple def to extract a single key from a section"""
+    """从部分中提取单个键的简单定义"""
     if not isinstance(keys, list):
         keys = [keys] # convenience
     out = {}
@@ -219,7 +219,7 @@ def extract(section, keys):
     return out
 
 def extract_timestamp(content, prefix):
-    """Extract timestamp from content with given prefix."""
+    """从具有给定前缀的内容中提取时间戳。"""
     for line in content.split('\n'):
         if line.startswith(prefix):
             time_str = line.split(":", 1)[1].strip()
@@ -230,14 +230,14 @@ def extract_timestamp(content, prefix):
     return None
 
 class Report:
-    """Maintains a bunch of logs, generates a final markdown report."""
+    """维护一组日志，生成最终的 markdown 报告。"""
 
     def __init__(self, report_dir):
         os.makedirs(report_dir, exist_ok=True)
         self.report_dir = report_dir
 
     def log(self, section, data):
-        """Log a section of data to the report."""
+        """将数据部分记录到报告中。"""
         slug = slugify(section)
         file_name = f"{slug}.md"
         file_path = os.path.join(self.report_dir, file_name)
@@ -246,13 +246,13 @@ class Report:
             f.write(f"timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             for item in data:
                 if not item:
-                    # skip falsy values like None or empty dict etc.
+                    # 跳过虚假值如 None 或空字典等。
                     continue
                 if isinstance(item, str):
-                    # directly write the string
+                    # 直接写入字符串
                     f.write(item)
                 else:
-                    # render a dict
+                    # 渲染字典
                     for k, v in item.items():
                         if isinstance(v, float):
                             vstr = f"{v:.4f}"
@@ -265,29 +265,29 @@ class Report:
         return file_path
 
     def generate(self):
-        """Generate the final report."""
+        """生成最终报告。"""
         report_dir = self.report_dir
         report_file = os.path.join(report_dir, "report.md")
         print(f"Generating report to {report_file}")
-        final_metrics = {} # the most important final metrics we'll add as table at the end
+        final_metrics = {} # 我们将添加到末尾表格中的最重要的最终指标
         start_time = None
         end_time = None
         with open(report_file, "w", encoding="utf-8") as out_file:
-            # write the header first
+            # 首先写入头部
             header_file = os.path.join(report_dir, "header.md")
             if os.path.exists(header_file):
                 with open(header_file, "r", encoding="utf-8") as f:
                     header_content = f.read()
                     out_file.write(header_content)
                     start_time = extract_timestamp(header_content, "Run started:")
-                    # capture bloat data for summary later (the stuff after Bloat header and until \n\n)
+                    # 捕获膨胀数据以便稍后汇总（Bloat 标题后到 \n\n 之间的内容）
                     bloat_data = re.search(r"### Bloat\n(.*?)\n\n", header_content, re.DOTALL)
                     bloat_data = bloat_data.group(1) if bloat_data else ""
             else:
-                start_time = None # will cause us to not write the total wall clock time
+                start_time = None # 将导致我们不写入总墙钟时间
                 bloat_data = "[bloat data missing]"
                 print(f"Warning: {header_file} does not exist. Did you forget to run `nanochat reset`?")
-            # process all the individual sections
+            # 处理所有单独的部分
             for file_name in EXPECTED_FILES:
                 section_file = os.path.join(report_dir, file_name)
                 if not os.path.exists(section_file):
@@ -295,11 +295,11 @@ class Report:
                     continue
                 with open(section_file, "r", encoding="utf-8") as in_file:
                     section = in_file.read()
-                # Extract timestamp from this section (the last section's timestamp will "stick" as end_time)
+                # 从此部分提取时间戳（最后一部分的时间戳将"保留"为 end_time）
                 if "rl" not in file_name:
-                    # Skip RL sections for end_time calculation because RL is experimental
+                    # 跳过 RL 部分的 end_time 计算，因为 RL 是实验性的
                     end_time = extract_timestamp(section, "timestamp:")
-                # extract the most important metrics from the sections
+                # 从各部分提取最重要的指标
                 if file_name == "base-model-evaluation.md":
                     final_metrics["base"] = extract(section, "CORE")
                 if file_name == "chat-evaluation-mid.md":
@@ -307,36 +307,36 @@ class Report:
                 if file_name == "chat-evaluation-sft.md":
                     final_metrics["sft"] = extract(section, chat_metrics)
                 if file_name == "chat-evaluation-rl.md":
-                    final_metrics["rl"] = extract(section, "GSM8K") # RL only evals GSM8K
-                # append this section of the report
+                    final_metrics["rl"] = extract(section, "GSM8K") # RL 只评估 GSM8K
+                # 追加此报告部分
                 out_file.write(section)
                 out_file.write("\n")
-            # add the final metrics table
+            # 添加最终指标表
             out_file.write("## Summary\n\n")
-            # Copy over the bloat metrics from the header
+            # 从头部复制膨胀指标
             out_file.write(bloat_data)
             out_file.write("\n\n")
-            # Collect all unique metric names
+            # 收集所有唯一的指标名称
             all_metrics = set()
             for stage_metrics in final_metrics.values():
                 all_metrics.update(stage_metrics.keys())
-            # Custom ordering: CORE first, ChatCORE last, rest in middle
+            # 自定义排序：CORE 在前，ChatCORE 在后，其余在中间
             all_metrics = sorted(all_metrics, key=lambda x: (x != "CORE", x == "ChatCORE", x))
-            # Fixed column widths
+            # 固定列宽
             stages = ["base", "mid", "sft", "rl"]
             metric_width = 15
             value_width = 8
-            # Write table header
+            # 写入表头
             header = f"| {'Metric'.ljust(metric_width)} |"
             for stage in stages:
                 header += f" {stage.upper().ljust(value_width)} |"
             out_file.write(header + "\n")
-            # Write separator
+            # 写入分隔符
             separator = f"|{'-' * (metric_width + 2)}|"
             for stage in stages:
                 separator += f"{'-' * (value_width + 2)}|"
             out_file.write(separator + "\n")
-            # Write table rows
+            # 写入表行
             for metric in all_metrics:
                 row = f"| {metric.ljust(metric_width)} |"
                 for stage in stages:
@@ -344,7 +344,7 @@ class Report:
                     row += f" {str(value).ljust(value_width)} |"
                 out_file.write(row + "\n")
             out_file.write("\n")
-            # Calculate and write total wall clock time
+            # 计算并写入总墙钟时间
             if start_time and end_time:
                 duration = end_time - start_time
                 total_seconds = int(duration.total_seconds())
@@ -359,17 +359,17 @@ class Report:
         return report_file
 
     def reset(self):
-        """Reset the report."""
-        # Remove section files
+        """重置报告。"""
+        # 删除部分文件
         for file_name in EXPECTED_FILES:
             file_path = os.path.join(self.report_dir, file_name)
             if os.path.exists(file_path):
                 os.remove(file_path)
-        # Remove report.md if it exists
+        # 如果存在则删除 report.md
         report_file = os.path.join(self.report_dir, "report.md")
         if os.path.exists(report_file):
             os.remove(report_file)
-        # Generate and write the header section with start timestamp
+        # 生成并写入带有开始时间戳的头部部分
         header_file = os.path.join(self.report_dir, "header.md")
         header = generate_header()
         start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -379,7 +379,7 @@ class Report:
         print(f"Reset report and wrote header to {header_file}")
 
 # -----------------------------------------------------------------------------
-# nanochat-specific convenience functions
+# nanochat 特定的便利函数
 
 class DummyReport:
     def log(self, *args, **kwargs):
@@ -388,7 +388,7 @@ class DummyReport:
         pass
 
 def get_report():
-    # just for convenience, only rank 0 logs to report
+    # 为方便起见，只有 rank 0 写入报告
     from nanochat.common import get_base_dir, get_dist_info
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
     if ddp_rank == 0:

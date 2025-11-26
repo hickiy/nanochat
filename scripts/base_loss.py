@@ -1,9 +1,9 @@
 """
-Loads a checkpoint, and:
-- Evaluates the loss on a larger chunk of train/val splits
-- Samples from the model
+加载检查点，并：
+- 在更大的训练/验证分片上评估损失
+- 从模型采样
 
-Example run as:
+运行示例：
 torchrun --standalone --nproc_per_node=8 -m scripts.base_loss
 """
 import os
@@ -16,22 +16,22 @@ from nanochat.tokenizer import get_token_bytes
 from nanochat.loss_eval import evaluate_bpb
 from nanochat.engine import Engine
 
-# Configuration
+# 配置
 device_batch_size = 32
-split_tokens = 20*524288  # number of tokens to evaluate per split
-model_tag = None # optional model tag for the output directory name
-model_step = None # optional model step for the output directory name
-device_type = "" # cuda|cpu|mps (empty => autodetect)
+split_tokens = 20*524288  # 每个分片评估的 token 数量
+model_tag = None # 可选的模型标签用于输出目录名
+model_step = None # 可选的模型步骤用于输出目录名
+device_type = "" # cuda|cpu|mps（空 => 自动检测）
 exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
 
-# Load the base model and the tokenizer
+# 加载基础模型和分词器
 device_type = autodetect_device_type() if device_type == "" else device_type
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
 model, tokenizer, meta = load_model("base", device, phase="eval", model_tag=model_tag, step=model_step)
 sequence_len = meta["model_config"]["sequence_len"] # could be arbitrary really
 autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16) if device_type == "cuda" else nullcontext()
 
-# Evaluate the loss on each split
+# 在每个分片上评估损失
 tokens_per_step = device_batch_size * sequence_len * ddp_world_size
 assert split_tokens % tokens_per_step == 0, "split_tokens must be divisible by tokens_per_step"
 steps = split_tokens // tokens_per_step
@@ -44,7 +44,7 @@ for split_name in ["train", "val"]:
     print0(f"{split_name} bpb: {bpb:.4f}")
     bpb_results[split_name] = bpb
 
-# Master process also samples from the model
+# 主进程还从模型采样
 samples = []
 if ddp_rank == 0:
     prompts = [
@@ -65,7 +65,7 @@ if ddp_rank == 0:
         print0(sample_str)
         samples.append(sample_str)
 
-# Log to report
+# 记录到报告
 from nanochat.report import get_report
 get_report().log(section="Base model loss", data=[
     {
@@ -75,5 +75,5 @@ get_report().log(section="Base model loss", data=[
     {f"sample {i}": sample for i, sample in enumerate(samples)},
 ])
 
-# Cleanup
+# 清理
 compute_cleanup()

@@ -1,10 +1,10 @@
 """
-Midtrain the model. Same as pretraining but simpler.
-Run as:
+中期训练模型。与预训练相同但更简单。
+运行方式：
 
 python -m scripts.mid_train
 
-Or torchrun for training:
+或使用 torchrun 进行训练：
 
 torchrun --standalone --nproc_per_node=8 -m scripts.mid_train -- --device_batch_size=16
 """

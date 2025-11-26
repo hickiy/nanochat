@@ -1,5 +1,5 @@
 """
-Common utilities for nanochat.
+nanochat 的通用工具函数。
 """
 
 import os
@@ -11,27 +11,27 @@ import torch.distributed as dist
 from filelock import FileLock
 
 class ColoredFormatter(logging.Formatter):
-    """Custom formatter that adds colors to log messages."""
-    # ANSI color codes
+    """为日志消息添加颜色的自定义格式化器。"""
+    # ANSI 颜色代码
     COLORS = {
-        'DEBUG': '\033[36m',    # Cyan
-        'INFO': '\033[32m',     # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',    # Red
-        'CRITICAL': '\033[35m', # Magenta
+        'DEBUG': '\033[36m',    # 青色
+        'INFO': '\033[32m',     # 绿色
+        'WARNING': '\033[33m',  # 黄色
+        'ERROR': '\033[31m',    # 红色
+        'CRITICAL': '\033[35m', # 洋红色
     }
     RESET = '\033[0m'
     BOLD = '\033[1m'
     def format(self, record):
-        # Add color to the level name
+        # 为日志级别名称添加颜色
         levelname = record.levelname
         if levelname in self.COLORS:
             record.levelname = f"{self.COLORS[levelname]}{self.BOLD}{levelname}{self.RESET}"
-        # Format the message
+        # 格式化消息
         message = super().format(record)
-        # Add color to specific parts of the message
+        # 为消息的特定部分添加颜色
         if levelname == 'INFO':
-            # Highlight numbers and percentages
+            # 高亮数字和百分比
             message = re.sub(r'(\d+\.?\d*\s*(?:GB|MB|%|docs))', rf'{self.BOLD}\1{self.RESET}', message)
             message = re.sub(r'(Shard \d+)', rf'{self.COLORS["INFO"]}{self.BOLD}\1{self.RESET}', message)
         return message
@@ -48,7 +48,7 @@ setup_default_logging()
 logger = logging.getLogger(__name__)
 
 def get_base_dir():
-    # co-locate nanochat intermediates with other cached data in ~/.cache (by default)
+    # 默认将 nanochat 的中间文件与其他缓存数据一起存放在 ~/.cache 目录下
     if os.environ.get("NANOCHAT_BASE_DIR"):
         nanochat_dir = os.environ.get("NANOCHAT_BASE_DIR")
     else:
@@ -60,8 +60,8 @@ def get_base_dir():
 
 def download_file_with_lock(url, filename, postprocess_fn=None):
     """
-    Downloads a file from a URL to a local path in the base directory.
-    Uses a lock file to prevent concurrent downloads among multiple ranks.
+    从 URL 下载文件到基础目录中的本地路径。
+    使用锁文件防止多个进程同时下载。
     """
     base_dir = get_base_dir()
     file_path = os.path.join(base_dir, filename)
@@ -71,24 +71,24 @@ def download_file_with_lock(url, filename, postprocess_fn=None):
         return file_path
 
     with FileLock(lock_path):
-        # Only a single rank can acquire this lock
-        # All other ranks block until it is released
+        # 只有单个进程能获取此锁
+        # 其他所有进程会阻塞直到锁被释放
 
-        # Recheck after acquiring lock
+        # 获取锁后重新检查
         if os.path.exists(file_path):
             return file_path
 
-        # Download the content as bytes
+        # 下载内容为字节流
         print(f"Downloading {url}...")
         with urllib.request.urlopen(url) as response:
-            content = response.read() # bytes
+            content = response.read() # 字节流
 
-        # Write to local file
+        # 写入本地文件
         with open(file_path, 'wb') as f:
             f.write(content)
         print(f"Downloaded to {file_path}")
 
-        # Run the postprocess function if provided
+        # 如果提供了后处理函数则执行
         if postprocess_fn is not None:
             postprocess_fn(file_path)
 
@@ -100,7 +100,7 @@ def print0(s="",**kwargs):
         print(s, **kwargs)
 
 def print_banner():
-    # Cool DOS Rebel font ASCII banner made with https://manytools.org/hacker-tools/ascii-banner/
+    # 使用 https://manytools.org/hacker-tools/ascii-banner/ 制作的炫酷 DOS Rebel 字体 ASCII 横幅
     banner = """
                                                        █████                █████
                                                       ░░███                ░░███
@@ -114,7 +114,7 @@ def print_banner():
     print0(banner)
 
 def is_ddp():
-    # TODO is there a proper way
+    # TODO 有没有更好的方法
     return int(os.environ.get('RANK', -1)) != -1
 
 def get_dist_info():
@@ -128,7 +128,7 @@ def get_dist_info():
         return False, 0, 0, 1
 
 def autodetect_device_type():
-    # prefer to use CUDA if available, otherwise use MPS, otherwise fallback on CPU
+    # 优先使用 CUDA（如果可用），否则使用 MPS，最后回退到 CPU
     if torch.cuda.is_available():
         device_type = "cuda"
     elif torch.backends.mps.is_available():
@@ -139,7 +139,7 @@ def autodetect_device_type():
     return device_type
 
 def compute_init(device_type="cuda"): # cuda|cpu|mps
-    """Basic initialization that we keep doing over and over, so make common."""
+    """我们反复执行的基础初始化，因此将其抽取为公共函数。"""
 
     assert device_type in ["cuda", "mps", "cpu"], "Invalid device type atm"
     if device_type == "cuda":
@@ -147,28 +147,28 @@ def compute_init(device_type="cuda"): # cuda|cpu|mps
     if device_type == "mps":
         assert torch.backends.mps.is_available(), "Your PyTorch installation is not configured for MPS but device_type is 'mps'"
 
-    # Reproducibility
-    # Note that we set the global seeds here, but most of the code uses explicit rng objects.
-    # The only place where global rng might be used is nn.Module initialization of the model weights.
+    # 可复现性
+    # 注意这里我们设置了全局种子，但大部分代码使用显式的 rng 对象。
+    # 全局 rng 可能被使用的唯一地方是 nn.Module 初始化模型权重时。
     torch.manual_seed(42)
     if device_type == "cuda":
         torch.cuda.manual_seed(42)
-    # skipping full reproducibility for now, possibly investigate slowdown later
+    # 暂时跳过完全可复现性，以后可能会研究其带来的性能下降
     # torch.use_deterministic_algorithms(True)
 
-    # Precision
+    # 精度
     if device_type == "cuda":
-        torch.set_float32_matmul_precision("high") # uses tf32 instead of fp32 for matmuls
+        torch.set_float32_matmul_precision("high") # 矩阵乘法使用 tf32 而非 fp32
 
-    # Distributed setup: Distributed Data Parallel (DDP), optional, and requires CUDA
+    # 分布式设置：分布式数据并行（DDP），可选，需要 CUDA
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
     if ddp and device_type == "cuda":
         device = torch.device("cuda", ddp_local_rank)
-        torch.cuda.set_device(device)  # make "cuda" default to this device
+        torch.cuda.set_device(device)  # 将 "cuda" 默认指向此设备
         dist.init_process_group(backend="nccl", device_id=device)
         dist.barrier()
     else:
-        device = torch.device(device_type) # mps|cpu
+        device = torch.device(device_type) # mps 或 cpu
 
     if ddp_rank == 0:
         logger.info(f"Distributed world size: {ddp_world_size}")
@@ -176,12 +176,12 @@ def compute_init(device_type="cuda"): # cuda|cpu|mps
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, device
 
 def compute_cleanup():
-    """Companion function to compute_init, to clean things up before script exit"""
+    """compute_init 的配套函数，用于脚本退出前的清理工作"""
     if is_ddp():
         dist.destroy_process_group()
 
 class DummyWandb:
-    """Useful if we wish to not use wandb but have all the same signatures"""
+    """当我们不想使用 wandb 但又想保持相同接口签名时很有用"""
     def __init__(self):
         pass
     def log(self, *args, **kwargs):

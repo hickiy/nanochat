@@ -1,32 +1,29 @@
 """
-Short and crappy script to demonstrate synthetic data generation for
-customizing your LLM's identity, or any other aspect really.
+简短而粗糙的脚本，用于演示定制 LLM 身份的合成数据生成，
+或实际上任何其他方面。
 
-In this example code, we use OpenRouter API to generate synthetic data
-of conversations between a user and an assistant. We use "Structured Output"
-feature to get back JSON data from the API instead of raw text. The conversations
-are saved simply to a .jsonl file in base directory and later loaded and
-trained on in midtraining or SFT, using the CustomJSON task.
+在此示例代码中，我们使用 OpenRouter API 生成用户和助手之间对话的
+合成数据。我们使用"结构化输出"功能从 API 获取 JSON 数据而不是原始文本。
+对话简单地保存到基础目录中的 .jsonl 文件，稍后使用 CustomJSON 任务
+在中期训练或 SFT 中加载和训练。
 
-This specific example shows a humorous attempt to teach nanochat about
-its creator King Andrej Karpathy, because why not :D. Note two things about the
-prompt:
+这个具体示例展示了一个幽默的尝试，教 nanochat 关于它的创造者
+King Andrej Karpathy，为什么不呢 :D。关于提示请注意两点：
 
-1. We are instructing the LLM how to handle various situations (e.g. foreign language),
-   simply in English. You can infuse any style or behavior in this way.
-2. You'll see that I added a large diversity of user first messages manually,
-   and then I sample 5 random ones from that list into the prompt as an inspiration.
-   This is really important to do because DIVERSITY CONTROL is key. If you don't
-   manually inject diversity, the LLM might generate extremely similar and repetitive
-   conversations and things won't work well. Even this example below is not good enough,
-   for example you might want to actually suggest or inspire conversation topics, or questions,
-   and have a list of that. Basically, this is the KEY creative part to get right. Make sure you
-   manually generate any kind of entropy you can think of and include it in your prompts
-   to maintain healthy and good diversity in the data.
+1. 我们用英语指导 LLM 如何处理各种情况（例如外语），
+   你可以用这种方式灌输任何风格或行为。
+2. 你会看到我手动添加了大量多样的用户第一条消息，
+   然后我从该列表中随机采样 5 个作为灵感放入提示中。
+   这样做非常重要，因为多样性控制是关键。如果你不手动
+   注入多样性，LLM 可能会生成极其相似和重复的对话，效果不会好。
+   即使是下面这个示例也不够好，例如你可能想实际建议或启发对话
+   主题或问题，并有一个列表。基本上，这是需要正确处理的关键
+   创意部分。确保你手动生成任何你能想到的熵，并将其包含在提示中
+   以保持数据的健康和良好多样性。
 
-NOTE: You need OpenRouter API key in a file called "openroutertoken.txt" in the root directory of the repo.
-      (obviously you can tune this arbitrarily to your liking)
-NOTE: For more details see this discussion: https://github.com/karpathy/nanochat/discussions/139
+注意：你需要在仓库根目录下的 "openroutertoken.txt" 文件中放入 OpenRouter API 密钥。
+     （显然你可以根据自己的喜好任意调整）
+注意：更多详情请参见此讨论：https://github.com/karpathy/nanochat/discussions/139
 """
 import requests
 import json
@@ -320,11 +317,11 @@ base_payload = {
 
 def generate_conversation(idx: int):
     """
-    Generate a single conversation using the OpenRouter API.
-    Returns a list of message dicts with 'role' and 'content' keys.
+    使用 OpenRouter API 生成单个对话。
+    返回包含 'role' 和 'content' 键的消息字典列表。
     """
 
-    # pick 5 example user first messages and insert them into prompt as inspiration
+    # 选择 5 个示例用户第一条消息并作为灵感插入提示
     rng = random.Random(idx) # use idx as seed to the rng
     user_first_prompt = "\n".join(rng.choice(user_first_prompts) for _ in range(5))
     payload = copy.deepcopy(base_payload)
@@ -335,43 +332,43 @@ def generate_conversation(idx: int):
     result = response.json()
     content = result['choices'][0]['message']['content']
 
-    # Parse the JSON response and unpack the messages
+    # 解析 JSON 响应并解包消息
     conversation_data = json.loads(content)
     messages = conversation_data['messages']
 
     return messages
 
 
-# Configuration
+# 配置
 num_conversations = 1000
 num_workers = 4
 
 output_file = os.path.join(get_base_dir(), "identity_conversations.jsonl")
-# Wipe the file clean first to reset it
+# 先清空文件以重置它
 if os.path.exists(output_file):
     os.remove(output_file)
 print(f"Saving to {output_file}")
 
-# Use ThreadPoolExecutor to generate conversations in parallel
+# 使用 ThreadPoolExecutor 并行生成对话
 print(f"Generating {num_conversations} conversations with {num_workers} workers...")
 completed_count = 0
 error_count = 0
 with ThreadPoolExecutor(max_workers=num_workers) as executor:
 
-    # Submit all tasks
+    # 提交所有任务
     futures = [executor.submit(generate_conversation, idx) for idx in range(num_conversations)]
 
-    # Process results as they complete
+    # 处理完成的结果
     for future in as_completed(futures):
         try:
             messages = future.result()
 
-            # Lightly validate the conversation structure
+            # 轻量验证对话结构
             for i, message in enumerate(messages):
                 expected_role = "user" if i % 2 == 0 else "assistant"
                 assert message['role'] == expected_role, f"Message {i} has role {message['role']} but should be {expected_role}"
 
-            # If all looks good, write the messages to file
+            # 如果一切正常，将消息写入文件
             with open(output_file, 'a') as f:
                 f.write(json.dumps(messages) + '\n')
             completed_count += 1
