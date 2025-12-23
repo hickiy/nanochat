@@ -13,17 +13,33 @@ import time
 import requests
 import pyarrow.parquet as pq
 from multiprocessing import Pool
-
 from nanochat.common import get_base_dir
+
+def get_proxy_dict():
+    """PROXIES 从仓库根目录的 config.toml 读取 [proxy] 节；如果未读取到则使用默认值。"""
+    _config_path = os.path.join(os.getcwd(), "config.toml")
+    try:
+        import toml as _toml_pkg  # toml
+        _cfg = _toml_pkg.load(_config_path)
+        _proxy_section = _cfg.get("proxy", None)
+        if isinstance(_proxy_section, dict):
+            return _proxy_section
+    except FileNotFoundError:
+        print(f"Proxy config file not found: {_config_path}")
+    except PermissionError:
+        print(
+            f"Permission denied when accessing proxy config: {_config_path}")
+    except Exception as e:
+        print(f"An error occurred while reading proxy config: {e}")
+    return None   
 
 # -----------------------------------------------------------------------------
 # 当前预训练数据集的具体信息
 
 # 数据托管和按需下载的互联网 URL
 BASE_URL = "https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
-PROXIES = None  # 默认为 None，稍后可能会从 config.toml 加载
 MAX_SHARD = 1822  # 最后一个数据分片是 shard_01822.parquet
-def index_to_filename(index): return f"shard_{index:05d}.parquet"  # 文件名格式
+proxies = get_proxy_dict() # 用于 requests 的代理字典
 
 # 本地数据目录
 base_dir = get_base_dir()
@@ -32,7 +48,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # -----------------------------------------------------------------------------
 # 这些函数是对其他模块有用的工具，可以/应该被导入
-
+def index_to_filename(index): return f"shard_{index:05d}.parquet"  # 文件名格式
 
 def list_parquet_files(data_dir=None):
     """ 查看数据目录并返回所有 parquet 文件的完整路径。 """
@@ -81,10 +97,11 @@ def download_single_file(index):
 
     # 带重试的下载
     max_attempts = 5
+
     for attempt in range(1, max_attempts + 1):
         try:
             response = requests.get(
-                url, stream=True, timeout=30, proxies=PROXIES)
+                url, stream=True, timeout=30, proxies=proxies)
             response.raise_for_status()
             # 先写入临时文件
             temp_path = filepath + f".tmp"
@@ -120,31 +137,8 @@ def download_single_file(index):
 
     return False
 
-
 if __name__ == "__main__":
-    # PROXIES 从仓库根目录的 config.toml 读取 [proxy] 节；如果未读取到则使用默认值。
-    # requests 的 proxies 参数：None = 使用 requests 默认行为；dict = 显式指定代理。
-    _config_path = os.path.join(os.getcwd(), "config.toml")
-    try:
-        import toml as _toml_pkg  # toml
-        _cfg = _toml_pkg.load(_config_path)
-        _proxy_section = _cfg.get("proxy", None)
-        if isinstance(_proxy_section, dict):
-            PROXIES = _proxy_section
-        else:
-            PROXIES = None
-    except FileNotFoundError:
-        print(f"Proxy config file not found: {_config_path}")
-    except PermissionError:
-        print(
-            f"Permission denied when accessing proxy config: {_config_path}")
-    except Exception as e:
-        print(f"An error occurred while reading proxy config: {e}")
-
-    if PROXIES is None:
-        print("No proxy configuration found or invalid format; proceeding without proxy.")
-    else:
-        print(f"Using proxy configuration: {PROXIES}")
+    print(f"Using proxies: {proxies}")
 
     parser = argparse.ArgumentParser(
         description="Download FineWeb-Edu 100BT dataset shards")
