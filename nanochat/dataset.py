@@ -13,25 +13,7 @@ import time
 import requests
 import pyarrow.parquet as pq
 from multiprocessing import Pool
-from nanochat.common import get_base_dir
-
-def get_proxy_dict():
-    """PROXIES 从仓库根目录的 config.toml 读取 [proxy] 节；如果未读取到则使用默认值。"""
-    _config_path = os.path.join(os.getcwd(), "config.toml")
-    try:
-        import toml as _toml_pkg  # toml
-        _cfg = _toml_pkg.load(_config_path)
-        _proxy_section = _cfg.get("proxy", None)
-        if isinstance(_proxy_section, dict):
-            return _proxy_section
-    except FileNotFoundError:
-        print(f"Proxy config file not found: {_config_path}")
-    except PermissionError:
-        print(
-            f"Permission denied when accessing proxy config: {_config_path}")
-    except Exception as e:
-        print(f"An error occurred while reading proxy config: {e}")
-    return None   
+from nanochat.common import get_base_dir 
 
 # -----------------------------------------------------------------------------
 # 当前预训练数据集的具体信息
@@ -39,7 +21,6 @@ def get_proxy_dict():
 # 数据托管和按需下载的互联网 URL
 BASE_URL = "https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
 MAX_SHARD = 1822  # 最后一个数据分片是 shard_01822.parquet
-proxies = get_proxy_dict() # 用于 requests 的代理字典
 
 # 本地数据目录
 base_dir = get_base_dir()
@@ -81,7 +62,7 @@ def parquets_iter_batched(split, start=0, step=1):
 # -----------------------------------------------------------------------------
 
 
-def download_single_file(index):
+def download_single_file(index, proxies):
     """ 下载单个文件索引，带退避重试 """
 
     # 构建此文件的本地路径，如果已存在则跳过
@@ -137,7 +118,26 @@ def download_single_file(index):
 
     return False
 
+def get_proxy_dict():
+    """PROXIES 从仓库根目录的 config.toml 读取 [proxy] 节；如果未读取到则使用默认值。"""
+    _config_path = os.path.join(os.getcwd(), "config.toml")
+    try:
+        import toml as _toml_pkg  # toml
+        _cfg = _toml_pkg.load(_config_path)
+        _proxy_section = _cfg.get("proxy", None)
+        if isinstance(_proxy_section, dict):
+            return _proxy_section
+    except FileNotFoundError:
+        print(f"Proxy config file not found: {_config_path}")
+    except PermissionError:
+        print(
+            f"Permission denied when accessing proxy config: {_config_path}")
+    except Exception as e:
+        print(f"An error occurred while reading proxy config: {e}")
+    return None  
+
 if __name__ == "__main__":
+    proxies = get_proxy_dict()
     print(f"Using proxies: {proxies}")
 
     parser = argparse.ArgumentParser(
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     print(f"Target directory: {DATA_DIR}")
     print()
     with Pool(processes=args.num_workers) as pool:
-        results = pool.map(download_single_file, ids_to_download)
+        results = pool.starmap(download_single_file, [(i, proxies) for i in ids_to_download])
 
     # Report results
     successful = sum(1 for success in results if success)
