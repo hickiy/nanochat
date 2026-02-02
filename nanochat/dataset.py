@@ -13,23 +13,22 @@ import time
 import requests
 import pyarrow.parquet as pq
 from multiprocessing import Pool
-from nanochat.common import get_base_dir 
+
+from nanochat.common import get_base_dir
 
 # -----------------------------------------------------------------------------
 # 当前预训练数据集的具体信息
 
 # 数据托管和按需下载的互联网 URL
-BASE_URL = "https://huggingface.co/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
-MAX_SHARD = 1822  # 最后一个数据分片是 shard_01822.parquet
-
-# 本地数据目录
+BASE_URL = "https://hf-mirror.com/datasets/karpathy/fineweb-edu-100b-shuffle/resolve/main"
+MAX_SHARD = 1822 # 最后一个数据分片是 shard_01822.parquet
+index_to_filename = lambda index: f"shard_{index:05d}.parquet" # 文件名格式
 base_dir = get_base_dir()
 DATA_DIR = os.path.join(base_dir, "base_data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # -----------------------------------------------------------------------------
 # 这些函数是对其他模块有用的工具，可以/应该被导入
-def index_to_filename(index): return f"shard_{index:05d}.parquet"  # 文件名格式
 
 def list_parquet_files(data_dir=None):
     """ 查看数据目录并返回所有 parquet 文件的完整路径。 """
@@ -41,7 +40,6 @@ def list_parquet_files(data_dir=None):
     parquet_paths = [os.path.join(data_dir, f) for f in parquet_files]
     return parquet_paths
 
-
 def parquets_iter_batched(split, start=0, step=1):
     """
     遍历数据集，以底层 row_groups 为批次以提高效率。
@@ -50,8 +48,7 @@ def parquets_iter_batched(split, start=0, step=1):
     """
     assert split in ["train", "val"], "split must be 'train' or 'val'"
     parquet_paths = list_parquet_files()
-    parquet_paths = parquet_paths[:-
-                                  1] if split == "train" else parquet_paths[-1:]
+    parquet_paths = parquet_paths[:-1] if split == "train" else parquet_paths[-1:]
     for filepath in parquet_paths:
         pf = pq.ParquetFile(filepath)
         for rg_idx in range(start, pf.num_row_groups, step):
@@ -60,9 +57,7 @@ def parquets_iter_batched(split, start=0, step=1):
             yield texts
 
 # -----------------------------------------------------------------------------
-
-
-def download_single_file(index, proxies):
+def download_single_file(index):
     """ 下载单个文件索引，带退避重试 """
 
     # 构建此文件的本地路径，如果已存在则跳过
@@ -78,17 +73,14 @@ def download_single_file(index, proxies):
 
     # 带重试的下载
     max_attempts = 5
-
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(
-                url, stream=True, timeout=30, proxies=proxies)
+            response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
             # 先写入临时文件
             temp_path = filepath + f".tmp"
             with open(temp_path, 'wb') as f:
-                # 1MB 块
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1MB 块
                     if chunk:
                         f.write(chunk)
             # 将临时文件移动到最终位置
@@ -97,8 +89,7 @@ def download_single_file(index, proxies):
             return True
 
         except (requests.RequestException, IOError) as e:
-            print(
-                f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
+            print(f"Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
             # 清理任何部分文件
             for path in [filepath + f".tmp", filepath]:
                 if os.path.exists(path):
@@ -112,53 +103,26 @@ def download_single_file(index, proxies):
                 print(f"Waiting {wait_time} seconds before retry...")
                 time.sleep(wait_time)
             else:
-                print(
-                    f"Failed to download {filename} after {max_attempts} attempts")
+                print(f"Failed to download {filename} after {max_attempts} attempts")
                 return False
 
     return False
 
-def get_proxy_dict():
-    """PROXIES 从仓库根目录的 config.toml 读取 [proxy] 节；如果未读取到则使用默认值。"""
-    _config_path = os.path.join(os.getcwd(), "config.toml")
-    try:
-        import toml as _toml_pkg  # toml
-        _cfg = _toml_pkg.load(_config_path)
-        _proxy_section = _cfg.get("proxy", None)
-        if isinstance(_proxy_section, dict):
-            return _proxy_section
-    except FileNotFoundError:
-        print(f"Proxy config file not found: {_config_path}")
-    except PermissionError:
-        print(
-            f"Permission denied when accessing proxy config: {_config_path}")
-    except Exception as e:
-        print(f"An error occurred while reading proxy config: {e}")
-    return None  
 
 if __name__ == "__main__":
-    proxies = get_proxy_dict()
-    print(f"Using proxies: {proxies}")
-
-    parser = argparse.ArgumentParser(
-        description="Download FineWeb-Edu 100BT dataset shards")
-    parser.add_argument("-n", "--num-files", type=int, default=-1,
-                        help="Number of shards to download (default: -1), -1 = disable")
-    parser.add_argument("-w", "--num-workers", type=int, default=4,
-                        help="Number of parallel download workers (default: 4)")
+    parser = argparse.ArgumentParser(description="Download FineWeb-Edu 100BT dataset shards")
+    parser.add_argument("-n", "--num-files", type=int, default=-1, help="Number of shards to download (default: -1), -1 = disable")
+    parser.add_argument("-w", "--num-workers", type=int, default=4, help="Number of parallel download workers (default: 4)")
     args = parser.parse_args()
 
-    num = MAX_SHARD + 1 if args.num_files == - \
-        1 else min(args.num_files, MAX_SHARD + 1)
+    num = MAX_SHARD + 1 if args.num_files == -1 else min(args.num_files, MAX_SHARD + 1)
     ids_to_download = list(range(num))
-    print(
-        f"Downloading {len(ids_to_download)} shards using {args.num_workers} workers...")
+    print(f"Downloading {len(ids_to_download)} shards using {args.num_workers} workers...")
     print(f"Target directory: {DATA_DIR}")
     print()
     with Pool(processes=args.num_workers) as pool:
-        results = pool.starmap(download_single_file, [(i, proxies) for i in ids_to_download])
+        results = pool.map(download_single_file, ids_to_download)
 
     # Report results
     successful = sum(1 for success in results if success)
-    print(
-        f"Done! Downloaded: {successful}/{len(ids_to_download)} shards to {DATA_DIR}")
+    print(f"Done! Downloaded: {successful}/{len(ids_to_download)} shards to {DATA_DIR}")
