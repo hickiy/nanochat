@@ -10,8 +10,6 @@ torchrun --standalone --nproc_per_node=8 -m scripts.mid_train -- --device_batch_
 """
 
 from collections import deque
-import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import wandb
 import torch

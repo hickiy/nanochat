@@ -10,6 +10,9 @@
 # 3) 使用 wandb 日志记录启动的示例，但请先设置 wandb：
 # WANDB_RUN=speedrun screen -L -Logfile speedrun.log -S speedrun bash speedrun.sh
 
+# 修改训练数据源
+export HF_ENDPOINT="https://hf-mirror.com"
+
 # 默认中间产物目录在 ~/.cache/nanochat
 export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
@@ -82,10 +85,11 @@ echo "等待数据集下载完成..."
 wait $DATASET_DOWNLOAD_PID
 
 # 使用的进程/GPU 数量
-NPROC_PER_NODE=8
+NPROC_PER_NODE=1
+DEVICE_BATCH_SIZE=4
 
 # 预训练 d20 模型
-torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- --depth=20 --run=$WANDB_RUN
+torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- --depth=20 --run=$WANDB_RUN --device_batch_size=$DEVICE_BATCH_SIZE
 # 在更大的训练/验证数据块上评估模型并抽取一些样本
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_loss
 # 在 CORE 任务上评估模型
@@ -99,7 +103,7 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_eval
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # 运行中期训练并评估模型
-torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.mid_train -- --run=$WANDB_RUN
+torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.mid_train -- --run=$WANDB_RUN --device_batch_size=$DEVICE_BATCH_SIZE
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -i mid
 
 # -----------------------------------------------------------------------------
