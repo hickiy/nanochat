@@ -10,6 +10,7 @@ torchrun --standalone --nproc_per_node=8 -m scripts.mid_train -- --device_batch_
 """
 
 from collections import deque
+import os
 import time
 import wandb
 import torch
