@@ -8,7 +8,10 @@ Example tasks: MMLU, ARC-Easy, ARC-Challenge, GSM8K, HumanEval, SmolTalk.
 import os
 import json
 import random
+import time
+import http.client
 import urllib.request
+import urllib.error
 
 import numpy as np
 import pyarrow as pa
@@ -16,6 +19,56 @@ import pyarrow.parquet as pq
 from filelock import FileLock
 
 from nanochat.common import get_base_dir
+
+
+# some endpoints (e.g. the hf-mirror.com community mirror) reject urllib's
+# default "Python-urllib/..." User-Agent with HTTP 403, so send a browser-like one
+_DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def download_url_with_retries(url, dest_path, max_attempts=5):
+    """
+    Download a URL to dest_path, retrying with exponential backoff on transient
+    network errors (e.g. http.client.IncompleteRead from a dropped connection).
+
+    The data is streamed to a temporary file and atomically renamed into place
+    only on success, so interrupted downloads never leave a partial file at
+    dest_path and a re-run starts from a clean slate.
+    """
+    temp_path = dest_path + ".tmp"
+    request = urllib.request.Request(url, headers={"User-Agent": _DEFAULT_USER_AGENT})
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                with open(temp_path, "wb") as f:
+                    while True:
+                        chunk = response.read(1024 * 1024)  # 1MB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            os.replace(temp_path, dest_path)
+            return
+        except urllib.error.HTTPError as e:
+            # permanent client errors (e.g. 403/404) won't be fixed by retrying;
+            # only rate limits and server hiccups are worth another attempt
+            if e.code not in (429, 500, 502, 503, 504):
+                raise
+            print(f"Attempt {attempt}/{max_attempts} failed downloading {url}: {e}")
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as e:
+            print(f"Attempt {attempt}/{max_attempts} failed downloading {url}: {e}")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        if attempt < max_attempts:
+            wait_time = 2 ** attempt
+            print(f"Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+    raise RuntimeError(f"Failed to download {url} after {max_attempts} attempts")
 
 
 class HubDataset:
@@ -48,7 +101,12 @@ def load_hub_dataset(repo_id, subset="default", split="train"):
     Every dataset on the hub has an auto-generated parquet export. We list the parquet
     shards via the hub API, download them (once) into the local cache directory, and
     read them with pyarrow. Under torchrun, only one rank downloads, the others wait.
+
+    The endpoint is controlled by the HF_ENDPOINT env var (default https://huggingface.co).
+    Users in regions where huggingface.co is slow or blocked can set
+    HF_ENDPOINT=https://hf-mirror.com to pull data through the community mirror.
     """
+    endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
     base_dir = get_base_dir()
     slug = repo_id.replace("/", "--")
     shards_dir = os.path.join(base_dir, "task_data", slug, subset, split)
@@ -60,17 +118,20 @@ def load_hub_dataset(repo_id, subset="default", split="train"):
             # only a single rank acquires the lock and downloads, the others block
             # here and then skip the download because they recheck the manifest
             if not os.path.exists(manifest_path):
-                listing_url = f"https://huggingface.co/api/datasets/{repo_id}/parquet/{subset}/{split}"
-                with urllib.request.urlopen(listing_url) as response:
-                    shard_urls = json.loads(response.read())
+                listing_url = f"{endpoint}/api/datasets/{repo_id}/parquet/{subset}/{split}"
+                listing_path = os.path.join(shards_dir, "listing.json")
+                download_url_with_retries(listing_url, listing_path)
+                with open(listing_path, "r") as f:
+                    shard_urls = json.load(f)
                 filenames = []
                 for shard_index, shard_url in enumerate(shard_urls):
                     filename = f"{shard_index:05d}.parquet"
+                    # shard URLs come back pointing at huggingface.co; rewrite them
+                    # to the active endpoint so the mirror is used for the data too
+                    shard_url = shard_url.replace("https://huggingface.co", endpoint)
                     print(f"Downloading {shard_url} ...")
-                    with urllib.request.urlopen(shard_url) as response:
-                        content = response.read()
-                    with open(os.path.join(shards_dir, filename), "wb") as f:
-                        f.write(content)
+                    shard_path = os.path.join(shards_dir, filename)
+                    download_url_with_retries(shard_url, shard_path)
                     filenames.append(filename)
                 with open(manifest_path, "w") as f:
                     json.dump(filenames, f)
