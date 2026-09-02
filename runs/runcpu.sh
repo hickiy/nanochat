@@ -16,10 +16,13 @@ mkdir -p $NANOCHAT_BASE_DIR
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 [ -d ".venv" ] || uv venv
 uv sync --extra cpu
-source .venv/bin/activate
+source .venv/Scripts/activate
 if [ -z "$WANDB_RUN" ]; then
     WANDB_RUN=dummy
 fi
+
+export http_proxy="http://127.0.0.1:1080"
+export https_proxy="http://127.0.0.1:1080"
 
 # train tokenizer on ~2B characters (~34 seconds on my MacBook Pro M3 Max)
 python -m nanochat.dataset -n 8
