@@ -28,13 +28,13 @@ if [ -z "$WANDB_RUN" ]; then
 fi
 
 # train tokenizer on ~2B characters (~34 seconds on my MacBook Pro M3 Max)
-python -m nanochat.dataset -n 8
-python -m scripts.tok_train --max-chars=2000000000
-python -m scripts.tok_eval
+# python -m nanochat.dataset -n 8
+# python -m scripts.tok_train --max-chars=2000000000
+# python -m scripts.tok_eval
 
-train a small 6 layer model
-I tuned this run to complete in about 30 minutes on my MacBook Pro M3 Max.
-To get better results, try increasing num_iterations, or get other ideas from your favorite LLM.
+# train a small 6 layer model
+# I tuned this run to complete in about 30 minutes on my MacBook Pro M3 Max.
+# To get better results, try increasing num_iterations, or get other ideas from your favorite LLM.
 python -m scripts.base_train \
     --depth=6 \
     --head-dim=64 \
