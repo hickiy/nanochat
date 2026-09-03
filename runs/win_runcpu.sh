@@ -41,6 +41,7 @@ python -m scripts.base_train \
     --window-pattern=L \
     --max-seq-len=512 \
     --device-batch-size=32 \
+    
     --total-batch-size=16384 \
     --eval-every=100 \
     --eval-tokens=524288 \

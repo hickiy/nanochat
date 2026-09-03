@@ -48,7 +48,7 @@ fi
 #     --sample-every=100 \
 #     --num-iterations=5000 \
 #     --run=$WANDB_RUN
-python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
+# python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
 python -m scripts.chat_sft \
